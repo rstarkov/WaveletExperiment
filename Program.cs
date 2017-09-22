@@ -94,7 +94,14 @@ namespace WaveletExperiment
 
         public void LoadWavelets(string path, double scale)
         {
-            _finalWavelets = File.ReadAllLines(path).Select(l => l.Replace("FINAL: ", "").Trim()).Where(l => l.StartsWith("X=")).Select(l => new Wavelet(l)).ToList();
+            LoadWavelets(
+                File.ReadAllLines(path).Select(l => l.Replace("FINAL: ", "").Trim()).Where(l => l.StartsWith("X=")).Select(l => new Wavelet(l)).ToList(),
+                scale);
+        }
+
+        public void LoadWavelets(IEnumerable<Wavelet> wavelets, double scale)
+        {
+            _finalWavelets = wavelets.ToList();
             _curScaleWavelets = new List<Wavelet>();
             _curTotalAreaCovered = 0;
             _curScale = scale;

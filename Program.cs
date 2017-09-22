@@ -92,6 +92,18 @@ namespace WaveletExperiment
             _curTotalAreaCovered = 0;
         }
 
+        public void LoadWavelets(string path, double scale)
+        {
+            _finalWavelets = File.ReadAllLines(path).Select(l => l.Replace("FINAL: ", "").Trim()).Where(l => l.StartsWith("X=")).Select(l => new Wavelet(l)).ToList();
+            _curScaleWavelets = new List<Wavelet>();
+            _curTotalAreaCovered = 0;
+            _curScale = scale;
+            _curImage = new Surface(_targetImage.Width, _targetImage.Height);
+            ApplyWavelets(_curImage, _finalWavelets);
+            _imageAtScaleStart = _curImage.Clone();
+            dump(_curImage, "-loaded");
+        }
+
         public void Optimize()
         {
             var wasError = TotalRmsError(new Wavelet[0], _curImage, _targetImage);
@@ -128,6 +140,13 @@ namespace WaveletExperiment
                 _curTotalAreaCovered = 0;
                 File.AppendAllLines("wavelets.txt", new[] { $"Scale: {_curScale / 4.0:0.00}" });
             }
+        }
+
+        public void TweakFinalWavelets()
+        {
+            _imageAtScaleStart = new Surface(_targetImage.Width, _targetImage.Height);
+            _finalWavelets = TweakWavelets(_finalWavelets.ToArray(), _imageAtScaleStart, _targetImage).ToList();
+            ApplyWavelets(_imageAtScaleStart, _finalWavelets);
         }
 
         private Wavelet[] ChooseWavelets(Surface initial, Surface target, int scale)

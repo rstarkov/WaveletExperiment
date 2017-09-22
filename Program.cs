@@ -416,9 +416,12 @@ namespace WaveletExperiment
         {
             double tx = x * mXX + y * mXY + mXO;
             double ty = x * mYX + y * mYY + mYO;
+            double lengthSquared = tx * tx + ty * ty;
 
-            return Brightness * Math.Exp(-(tx * tx + ty * ty) * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
-                                                                                 // 6.23... = ln 512, ie the point at which the value becomes less than 0.5 when scaled by 256, ie would round to 0
+            if (lengthSquared > 1)
+                return 0;
+            return Brightness * Math.Exp(-lengthSquared * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
+            // 6.23... = ln 512, ie the point at which the value becomes less than 0.5 when scaled by 256, ie would round to 0
         }
 
         public Wavelet Clone()

@@ -185,17 +185,15 @@ namespace WaveletExperiment
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
             wavelets = best.Select(w => w.Clone()).ToArray();
-            var imgWithAllPreviousWavelets = new Surface(_targetImage.Width, _targetImage.Height);
-            var imgWithoutCurWavelet = new Surface(_targetImage.Width, _targetImage.Height);
             while (true)
             {
                 bool improvements = false;
-                var curError = TotalRmsError(wavelets, initial, target);
-                initial.CopyTo(imgWithAllPreviousWavelets);
+                var img = initial.Clone();
+                ApplyWavelets(img, wavelets);
+                var curError = TotalRmsError(new Wavelet[0], img, target);
                 for (int w = 0; w < wavelets.Length; w++)
                 {
-                    imgWithAllPreviousWavelets.CopyTo(imgWithoutCurWavelet);
-                    ApplyWavelets(imgWithoutCurWavelet, wavelets.Skip(w + 1));
+                    ApplyWavelets(img, new[] { wavelets[w] }, invert: true);
                     int[] vector = new[] { 0, 0, 0, 0, 0, 0 };
                     for (int v = 0; v < vector.Length; v++)
                     {
@@ -204,7 +202,7 @@ namespace WaveletExperiment
                         {
                             vector[v] = multiplier;
                             wavelets[w].ApplyVector(vector, 0, false);
-                            var newError = TotalRmsError(new[] { wavelets[w] }, imgWithoutCurWavelet, target);
+                            var newError = TotalRmsError(new[] { wavelets[w] }, img, target);
                             if (curError > newError)
                             {
                                 curError = newError;
@@ -230,7 +228,7 @@ namespace WaveletExperiment
                         }
                         vector[v] = 0;
                     }
-                    ApplyWavelets(imgWithAllPreviousWavelets, new[] { wavelets[w] });
+                    ApplyWavelets(img, new[] { wavelets[w] });
                 }
                 Console.WriteLine($"Tweaked error: {curError}");
                 if (!improvements)
@@ -298,8 +296,9 @@ namespace WaveletExperiment
             dump(img);
         }
 
-        private static void ApplyWavelets(Surface img, IEnumerable<Wavelet> wavelets)
+        private static void ApplyWavelets(Surface img, IEnumerable<Wavelet> wavelets, bool invert = false)
         {
+            double mul = invert ? -1 : 1;
             foreach (var wavelet in wavelets)
                 wavelet.Precalculate();
             for (int y = 0; y < img.Height; y++)
@@ -307,7 +306,7 @@ namespace WaveletExperiment
                 {
                     double pixel = img[x, y];
                     foreach (var wavelet in wavelets)
-                        pixel += wavelet.Calculate(x, y);
+                        pixel += wavelet.Calculate(x, y) * mul;
                     img[x, y] = pixel;
                 }
         }

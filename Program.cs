@@ -76,7 +76,7 @@ namespace WaveletExperiment
                     finals = finals.Take(finalsCount).ToList();
                     _finalWavelets.AddRange(finals);
 
-                    ApplyWavelets(_imageAtScaleStart, finals.ToArray());
+                    ApplyWavelets(_imageAtScaleStart, finals);
                     _curScaleWavelets.Clear();
                     _curImage = _imageAtScaleStart.Clone();
                     _curScale *= 0.70;
@@ -166,12 +166,17 @@ namespace WaveletExperiment
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
             wavelets = best.Select(w => w.Clone()).ToArray();
+            var imgWithAllPreviousWavelets = new Surface(_targetImage.Width, _targetImage.Height);
+            var imgWithoutCurWavelet = new Surface(_targetImage.Width, _targetImage.Height);
             while (true)
             {
                 bool improvements = false;
                 var curError = TotalRmsError(wavelets, initial, target);
+                initial.CopyTo(imgWithAllPreviousWavelets);
                 for (int w = 0; w < wavelets.Length; w++)
                 {
+                    imgWithAllPreviousWavelets.CopyTo(imgWithoutCurWavelet);
+                    ApplyWavelets(imgWithoutCurWavelet, wavelets.Skip(w + 1));
                     int[] vector = new[] { 0, 0, 0, 0, 0, 0 };
                     for (int v = 0; v < vector.Length; v++)
                     {
@@ -180,7 +185,7 @@ namespace WaveletExperiment
                         {
                             vector[v] = multiplier;
                             wavelets[w].ApplyVector(vector, 0, false);
-                            var newError = TotalRmsError(wavelets, initial, target);
+                            var newError = TotalRmsError(new[] { wavelets[w] }, imgWithoutCurWavelet, target);
                             if (curError > newError)
                             {
                                 curError = newError;
@@ -206,6 +211,7 @@ namespace WaveletExperiment
                         }
                         vector[v] = 0;
                     }
+                    ApplyWavelets(imgWithAllPreviousWavelets, new[] { wavelets[w] });
                 }
                 Console.WriteLine($"Tweaked error: {curError}");
                 if (!improvements)
@@ -273,7 +279,7 @@ namespace WaveletExperiment
             dump(img);
         }
 
-        private static void ApplyWavelets(Surface img, Wavelet[] wavelets)
+        private static void ApplyWavelets(Surface img, IEnumerable<Wavelet> wavelets)
         {
             foreach (var wavelet in wavelets)
                 wavelet.Precalculate();
@@ -283,7 +289,7 @@ namespace WaveletExperiment
                     double pixel = img[x, y];
                     foreach (var wavelet in wavelets)
                         pixel += wavelet.Calculate(x, y);
-                    img[x, y] = pixel.Clip(-0.5, 255.5);
+                    img[x, y] = pixel;
                 }
         }
 
@@ -369,6 +375,13 @@ namespace WaveletExperiment
         public Surface Clone()
         {
             return new Surface(Width, Height) { Data = Data.ToArray() };
+        }
+
+        public void CopyTo(Surface target)
+        {
+            if (target.Width != Width || target.Height != Height)
+                throw new ArgumentException("Target image must have the same width and height");
+            Array.Copy(Data, target.Data, Data.Length);
         }
     }
 

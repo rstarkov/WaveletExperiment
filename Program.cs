@@ -66,7 +66,7 @@ namespace WaveletExperiment
                 {
                     var wavelet = new Wavelet(line);
                     ApplyWavelets(_curImage, new[] { wavelet });
-                    _curTotalAreaCovered += wavelet.W / 4.0 * wavelet.H / 4.0;
+                    _curTotalAreaCovered += wavelet.Area();
                     _curScaleWavelets.Add(wavelet);
                 }
                 else if (line.StartsWith("FINAL: X"))
@@ -128,7 +128,7 @@ namespace WaveletExperiment
             ApplyWavelets(_curImage, wavelets);
             foreach (var wavelet in wavelets)
             {
-                _curTotalAreaCovered += wavelet.W / 4.0 * wavelet.H / 4.0;
+                _curTotalAreaCovered += wavelet.Area();
                 _curScaleWavelets.Add(wavelet);
             }
             File.AppendAllLines("wavelets.txt", wavelets.Select(w => w.ToString()));
@@ -606,6 +606,11 @@ namespace WaveletExperiment
             maxX = (int) Math.Ceiling(X / 4.0 + dx);
             minY = (int) Math.Floor(Y / 4.0 - dy);
             maxY = (int) Math.Floor(Y / 4.0 + dy);
+        }
+
+        public double Area()
+        {
+            return W / 8.0 * H / 8.0 * Math.PI;
         }
     }
 }

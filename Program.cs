@@ -65,7 +65,7 @@ namespace WaveletExperiment
                 if (line.StartsWith("X"))
                 {
                     var wavelet = new Wavelet(line);
-                    ApplyWavelets(_curImage, new[] { wavelet });
+                    _curImage.ApplyWavelets(new[] { wavelet });
                     _curTotalAreaCovered += wavelet.Area();
                     _curScaleWavelets.Add(wavelet);
                 }
@@ -80,7 +80,7 @@ namespace WaveletExperiment
                     finals = finals.Take(finalsCount).ToList();
                     _finalWavelets.AddRange(finals);
 
-                    ApplyWavelets(_imageAtScaleStart, finals);
+                    _imageAtScaleStart.ApplyWavelets(finals);
                     _curScaleWavelets.Clear();
                     _curImage = _imageAtScaleStart.Clone();
                     _curScale *= 0.70;
@@ -110,7 +110,7 @@ namespace WaveletExperiment
             _curTotalAreaCovered = 0;
             _curScale = scale;
             _curImage = new Surface(_targetImage.Width, _targetImage.Height);
-            ApplyWavelets(_curImage, _finalWavelets);
+            _curImage.ApplyWavelets(_finalWavelets);
             _imageAtScaleStart = _curImage.Clone();
             dump(_curImage, "-loaded");
         }
@@ -125,7 +125,7 @@ namespace WaveletExperiment
                 Console.WriteLine("Error didn't change; a bad wavelet must have been optimized off the screen");
                 return;
             }
-            ApplyWavelets(_curImage, wavelets);
+            _curImage.ApplyWavelets(wavelets);
             foreach (var wavelet in wavelets)
             {
                 _curTotalAreaCovered += wavelet.Area();
@@ -138,7 +138,7 @@ namespace WaveletExperiment
             {
                 var final = TweakWavelets(_curScaleWavelets.ToArray(), _imageAtScaleStart, _targetImage);
                 _finalWavelets.AddRange(final);
-                ApplyWavelets(_imageAtScaleStart, final);
+                _imageAtScaleStart.ApplyWavelets(final);
                 _curScaleWavelets.Clear();
                 _curImage = _imageAtScaleStart.Clone();
                 var finalError = TotalRmsError(_imageAtScaleStart, _targetImage);
@@ -157,7 +157,7 @@ namespace WaveletExperiment
         {
             _imageAtScaleStart = new Surface(_targetImage.Width, _targetImage.Height);
             _finalWavelets = TweakWavelets(_finalWavelets.ToArray(), _imageAtScaleStart, _targetImage).ToList();
-            ApplyWavelets(_imageAtScaleStart, _finalWavelets);
+            _imageAtScaleStart.ApplyWavelets(_finalWavelets);
         }
 
         private Wavelet[] ChooseWavelets(Surface initial, Surface target, int scale)
@@ -200,11 +200,11 @@ namespace WaveletExperiment
             {
                 bool improvements = false;
                 var img = initial.Clone();
-                ApplyWavelets(img, wavelets);
+                img.ApplyWavelets(wavelets);
                 var curError = TotalRmsError(img, target);
                 for (int w = 0; w < wavelets.Length; w++)
                 {
-                    ApplyWavelets(img, new[] { wavelets[w] }, invert: true);
+                    img.ApplyWavelets(new[] { wavelets[w] }, invert: true);
                     int[] vector = new[] { 0, 0, 0, 0, 0, 0 };
                     for (int v = 0; v < vector.Length; v++)
                     {
@@ -239,7 +239,7 @@ namespace WaveletExperiment
                         }
                         vector[v] = 0;
                     }
-                    ApplyWavelets(img, new[] { wavelets[w] });
+                    img.ApplyWavelets(new[] { wavelets[w] });
                 }
                 Console.WriteLine($"Tweaked error: {curError}");
                 if (!improvements)
@@ -303,93 +303,8 @@ namespace WaveletExperiment
         private void dump(Surface initial, Wavelet[] wavelets)
         {
             var img = initial.Clone();
-            ApplyWavelets(img, wavelets);
+            img.ApplyWavelets(wavelets);
             dump(img);
-        }
-
-        public static void ApplyWavelets(Surface img, IEnumerable<Wavelet> wavelets, bool invert = false)
-        {
-            double mul = invert ? -1 : 1;
-            foreach (var wavelet in wavelets)
-            {
-                wavelet.Precalculate();
-                int xStart = (wavelet.X / 4).Clip(0, img.Width - 1);
-                int yStart = (wavelet.Y / 4).Clip(0, img.Height - 1);
-                // It's possible for the clipped starting point to be outside the ellipse, which would make the entire wavelet invisible even if a part of the ellipse
-                // actually protrudes into the image. This is OK though, the optimizer will just have to avoid such placements.
-
-                int minX = xStart;
-                int maxX = xStart;
-                int yDir = -1;
-                int y = yStart;
-                double val;
-                while (true)
-                {
-                    int x = minX;
-                    val = wavelet.Calculate(x, y) * mul;
-                    bool hadNonZero = val != 0;
-                    if (hadNonZero)
-                    {
-                        img[x, y] += val;
-                        // move left from minX
-                        while (true)
-                        {
-                            x--;
-                            if (x < 0)
-                                break;
-                            val = wavelet.Calculate(x, y) * mul;
-                            if (val == 0)
-                                break;
-                            img[x, y] += val;
-                        }
-                        var wasMinX = minX;
-                        minX = x + 1; // last X that wasn't zero
-                        x = wasMinX;
-                    }
-                    // move right from original minX
-                    // hadNonZero continues to indicate whether we're yet to find the first non-zero pixel on this right-directed scan
-                    while (true)
-                    {
-                        x++; // we've already processed the pixel at X
-                        if (x >= img.Width)
-                            break;
-                        val = wavelet.Calculate(x, y) * mul;
-                        if (val == 0)
-                        {
-                            if (!hadNonZero)
-                                continue;
-                            break;
-                        }
-                        if (!hadNonZero)
-                        {
-                            hadNonZero = true;
-                            minX = x;
-                        }
-                        img[x, y] += val;
-                    }
-                    maxX = x - 1; // last X that wasn't zero
-
-                    if (hadNonZero)
-                    {
-                        y += yDir;
-                    }
-                    if (!hadNonZero || y < 0 || y >= img.Height)
-                    {
-                        // we're done with the current Y direction
-                        if (yDir == -1)
-                        {
-                            yDir = 1;
-                            y = yStart + 1;
-                            minX = xStart;
-                            maxX = xStart;
-                            if (y >= img.Height)
-                                break; // we're done with the whole thing
-                        }
-                        else
-                            break; // we're done with the whole thing
-                    }
-                }
-            }
         }
 
         public static double TotalRmsError(Surface current, Surface target)
@@ -410,7 +325,7 @@ namespace WaveletExperiment
             if (rmsTemp == null)
                 rmsTemp = new Surface(target.Width, target.Height);
             initial.CopyTo(rmsTemp);
-            ApplyWavelets(rmsTemp, wavelets);
+            rmsTemp.ApplyWavelets(wavelets);
             return TotalRmsError(rmsTemp, target);
         }
 
@@ -498,6 +413,91 @@ namespace WaveletExperiment
             if (target.Width != Width || target.Height != Height)
                 throw new ArgumentException("Target image must have the same width and height");
             Array.Copy(Data, target.Data, Data.Length);
+        }
+
+        public void ApplyWavelets(IEnumerable<Wavelet> wavelets, bool invert = false)
+        {
+            double mul = invert ? -1 : 1;
+            foreach (var wavelet in wavelets)
+            {
+                wavelet.Precalculate();
+                int xStart = (wavelet.X / 4).Clip(0, Width - 1);
+                int yStart = (wavelet.Y / 4).Clip(0, Height - 1);
+                // It's possible for the clipped starting point to be outside the ellipse, which would make the entire wavelet invisible even if a part of the ellipse
+                // actually protrudes into the image. This is OK though, the optimizer will just have to avoid such placements.
+
+                int minX = xStart;
+                int maxX = xStart;
+                int yDir = -1;
+                int y = yStart;
+                double val;
+                while (true)
+                {
+                    int x = minX;
+                    val = wavelet.Calculate(x, y) * mul;
+                    bool hadNonZero = val != 0;
+                    if (hadNonZero)
+                    {
+                        this[x, y] += val;
+                        // move left from minX
+                        while (true)
+                        {
+                            x--;
+                            if (x < 0)
+                                break;
+                            val = wavelet.Calculate(x, y) * mul;
+                            if (val == 0)
+                                break;
+                            this[x, y] += val;
+                        }
+                        var wasMinX = minX;
+                        minX = x + 1; // last X that wasn't zero
+                        x = wasMinX;
+                    }
+                    // move right from original minX
+                    // hadNonZero continues to indicate whether we're yet to find the first non-zero pixel on this right-directed scan
+                    while (true)
+                    {
+                        x++; // we've already processed the pixel at X
+                        if (x >= Width)
+                            break;
+                        val = wavelet.Calculate(x, y) * mul;
+                        if (val == 0)
+                        {
+                            if (!hadNonZero)
+                                continue;
+                            break;
+                        }
+                        if (!hadNonZero)
+                        {
+                            hadNonZero = true;
+                            minX = x;
+                        }
+                        this[x, y] += val;
+                    }
+                    maxX = x - 1; // last X that wasn't zero
+
+                    if (hadNonZero)
+                    {
+                        y += yDir;
+                    }
+                    if (!hadNonZero || y < 0 || y >= Height)
+                    {
+                        // we're done with the current Y direction
+                        if (yDir == -1)
+                        {
+                            yDir = 1;
+                            y = yStart + 1;
+                            minX = xStart;
+                            maxX = xStart;
+                            if (y >= Height)
+                                break; // we're done with the whole thing
+                        }
+                        else
+                            break; // we're done with the whole thing
+                    }
+                }
+            }
         }
     }
 

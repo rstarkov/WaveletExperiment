@@ -117,7 +117,7 @@ namespace WaveletExperiment
 
         public void Optimize()
         {
-            var wasError = TotalRmsError(new Wavelet[0], _curImage, _targetImage);
+            var wasError = TotalRmsError(_curImage, _targetImage);
             var wavelets = ChooseWavelets(_curImage, _targetImage, (int) Math.Round(_curScale));
             var newError = TotalRmsError(wavelets, _curImage, _targetImage);
             if (wasError == newError)
@@ -141,7 +141,7 @@ namespace WaveletExperiment
                 ApplyWavelets(_imageAtScaleStart, final);
                 _curScaleWavelets.Clear();
                 _curImage = _imageAtScaleStart.Clone();
-                var finalError = TotalRmsError(new Wavelet[0], _imageAtScaleStart, _targetImage);
+                var finalError = TotalRmsError(_imageAtScaleStart, _targetImage);
                 File.AppendAllLines("wavelets.txt", final.Select(w => "FINAL: " + w.ToString()));
                 File.AppendAllLines("wavelets.txt", new[] { $"RMS FINAL error at {_finalWavelets.Count} wavelets: {finalError}" });
                 File.WriteAllLines("wavelets-final.txt", _finalWavelets.Select(w => "FINAL: " + w.ToString()));
@@ -201,7 +201,7 @@ namespace WaveletExperiment
                 bool improvements = false;
                 var img = initial.Clone();
                 ApplyWavelets(img, wavelets);
-                var curError = TotalRmsError(new Wavelet[0], img, target);
+                var curError = TotalRmsError(img, target);
                 for (int w = 0; w < wavelets.Length; w++)
                 {
                     ApplyWavelets(img, new[] { wavelets[w] }, invert: true);
@@ -213,7 +213,7 @@ namespace WaveletExperiment
                         {
                             vector[v] = multiplier;
                             wavelets[w].ApplyVector(vector, 0, false);
-                            var newError = TotalRmsError(new[] { wavelets[w] }, img, target);
+                            var newError = TotalRmsError(wavelets[w], img, target);
                             if (curError > newError)
                             {
                                 curError = newError;
@@ -392,16 +392,38 @@ namespace WaveletExperiment
             }
         }
 
-        private static double TotalRmsError(Wavelet[] wavelets, Surface initial, Surface target)
+        public static double TotalRmsError(Surface current, Surface target)
         {
-            foreach (var wavelet in wavelets)
-                wavelet.Precalculate();
+            double total = 0;
+            for (int y = 0; y < target.Height; y++)
+                for (int x = 0; x < target.Width; x++)
+                {
+                    var pixel = current[x, y].Clip(-0.5, 255.5) - target[x, y];
+                    total += pixel * pixel;
+                }
+            return Math.Sqrt(total);
+        }
+
+        private static Surface rmsTemp; // kinda hacky but this is a single-threaded code so it's not too bad...
+        public static double TotalRmsError(IEnumerable<Wavelet> wavelets, Surface initial, Surface target)
+        {
+            if (rmsTemp == null)
+                rmsTemp = new Surface(target.Width, target.Height);
+            initial.CopyTo(rmsTemp);
+            ApplyWavelets(rmsTemp, wavelets);
+            return TotalRmsError(rmsTemp, target);
+        }
+
+        public static double TotalRmsError(Wavelet wavelet, Surface initial, Surface target)
+        {
+            wavelet.Precalculate();
+            wavelet.BoundingBox(out var minX, out var minY, out var maxX, out var maxY);
             double total = 0;
             for (int y = 0; y < target.Height; y++)
                 for (int x = 0; x < target.Width; x++)
                 {
                     double pixel = initial[x, y];
-                    foreach (var wavelet in wavelets)
+                    if (x >= minX && x <= maxX && y >= minY && y <= maxY)
                         pixel += wavelet.Calculate(x, y);
                     pixel = pixel.Clip(-0.5, 255.5) - target[x, y];
                     total += pixel * pixel;
@@ -554,8 +576,8 @@ namespace WaveletExperiment
             sinSq *= sinSq;
             var cosSq = Math.Cos(A / 180.0 * Math.PI);
             cosSq *= cosSq;
-            var wSq = W * W / 16.0;
-            var hSq = H * H / 16.0;
+            var wSq = (double) W * W / 16.0;
+            var hSq = (double) H * H / 16.0;
             var dx = Math.Sqrt(wSq * cosSq + hSq * sinSq);
             var dy = Math.Sqrt(wSq * sinSq + hSq * cosSq);
             minX = (int) Math.Floor(X / 4.0 - dx); // -1 just to be extra safe with off-by-one

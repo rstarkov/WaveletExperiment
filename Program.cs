@@ -192,10 +192,11 @@ namespace WaveletExperiment
             return best;
         }
 
-        private static Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target)
+        private Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target)
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
             wavelets = best.Select(w => w.Clone()).ToArray();
+            var start = DateTime.UtcNow;
             while (true)
             {
                 bool improvements = false;
@@ -204,6 +205,7 @@ namespace WaveletExperiment
                 var curError = TotalRmsError(img, target);
                 for (int w = 0; w < wavelets.Length; w++)
                 {
+                    Console.WriteLine($"{w}: {(DateTime.UtcNow - start).TotalSeconds:#,0.000}s, {curError}");
                     ApplyWavelets(img, new[] { wavelets[w] }, invert: true);
                     int[] vector = new[] { 0, 0, 0, 0, 0, 0 };
                     for (int v = 0; v < vector.Length; v++)
@@ -216,8 +218,16 @@ namespace WaveletExperiment
                             var newError = TotalRmsError(wavelets[w], img, target);
                             if (curError > newError)
                             {
+                                //if (newError < Math.Floor(curError / 10) * 10)
+                                //{
+                                //    var dmp = initial.Clone();
+                                //    ApplyWavelets(dmp, wavelets);
+                                //    dump(dmp, $"-{newError:0.000}");
+                                //    File.WriteAllLines("wavelets-tweaked.txt", new[] { $"Error: {newError}" }.Concat(wavelets.Select(ww => ww.ToString())));
+                                //}
                                 curError = newError;
                                 best = wavelets.Select(x => x.Clone()).ToArray();
+                                Console.Title = "New error: " + newError;
                                 improvements = true;
                                 multiplier *= 2;
                             }

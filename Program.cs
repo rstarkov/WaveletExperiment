@@ -26,6 +26,37 @@ namespace WaveletExperiment
         {
             var target = new Surface(Bitmap.FromFile(@"P:\WaveletExperiment\lena3.png").ToBitmapRam());
             target.Save("target.png");
+            Rnd.Reset(12346);
+
+            for (int dx = 0; dx < 4; dx++)
+                for (int dy = 0; dy < 4; dy++)
+                    for (int a = 0; a < 360; a++)
+                    {
+                        var wvl = new Wavelet { X = 110 * 4 + dx, Y = 90 * 4 + dy, W = 20 * 4+Rnd.Next(0,4), H = 80 * 4 + Rnd.Next(0, 4), A = a, Brightness = 128 };
+                        var surf = new Surface(200, 200);
+                        wvl.BoundingBox(out int minX, out int minY, out int maxX, out int maxY);
+                        for (int x = minX; x <= maxX; x++)
+                        {
+                            if (x < 0 || x >= surf.Width)
+                                continue;
+                            if (minY > 0 && minY <= surf.Height)
+                                surf[x, minY] = 128;
+                            if (maxY > 0 && maxY <= surf.Height)
+                                surf[x, maxY] = 128;
+                        }
+                        for (int y = minY; y <= maxY; y++)
+                        {
+                            if (y < 0 || y >= surf.Height)
+                                continue;
+                            if (minX > 0 && minX <= surf.Width)
+                                surf[minX, y] = 128;
+                            if (maxX >= 0 && maxX <= surf.Width)
+                                surf[maxX, y] = 128;
+                        }
+                        Optimizer.ApplyWavelets(surf, new[] { wvl });
+                        surf.Save($"test-{a:000}-{dx}-{dy}.png");
+                    }
+            return;
 
             var opt = new Optimizer(target);
             while (true)
@@ -526,6 +557,7 @@ namespace WaveletExperiment
 
             if (lengthSquared > 1)
                 return 0;
+            return Brightness;
             return Brightness * Math.Exp(-lengthSquared * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
             // 6.23... = ln 512, ie the point at which the value becomes less than 0.5 when scaled by 256, ie would round to 0
         }
@@ -544,6 +576,22 @@ namespace WaveletExperiment
             H = (H + vector[offset + 3] * mul).ClipMin(1);
             A = (A + vector[offset + 4] * mul + 360) % 360;
             Brightness = (Brightness + vector[offset + 5] * mul).Clip(-260, 260);
+        }
+
+        public void BoundingBox(out int minX, out int minY, out int maxX, out int maxY)
+        {
+            var sinSq = Math.Sin(A / 180.0 * Math.PI);
+            sinSq *= sinSq;
+            var cosSq = Math.Cos(A / 180.0 * Math.PI);
+            cosSq *= cosSq;
+            var wSq = W * W / 16.0;
+            var hSq = H * H / 16.0;
+            var dx = Math.Sqrt(wSq * cosSq + hSq * sinSq);
+            var dy = Math.Sqrt(wSq * sinSq + hSq * cosSq);
+            minX = (int) Math.Floor(X / 4.0 - dx); // -1 just to be extra safe with off-by-one
+            maxX = (int) Math.Ceiling(X / 4.0 + dx);
+            minY = (int) Math.Floor(Y / 4.0 - dy);
+            maxY = (int) Math.Floor(Y / 4.0 + dy);
         }
     }
 }

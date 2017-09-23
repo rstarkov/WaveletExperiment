@@ -417,13 +417,12 @@ namespace WaveletExperiment
         public static double TotalRmsError(Wavelet wavelet, Surface initial, Surface target)
         {
             wavelet.Precalculate();
-            wavelet.BoundingBox(out var minX, out var minY, out var maxX, out var maxY);
             double total = 0;
             for (int y = 0; y < target.Height; y++)
                 for (int x = 0; x < target.Width; x++)
                 {
                     double pixel = initial[x, y];
-                    if (x >= minX && x <= maxX && y >= minY && y <= maxY)
+                    if (x >= wavelet.MinX && x <= wavelet.MaxX && y >= wavelet.MinY && y <= wavelet.MaxY)
                         pixel += wavelet.Calculate(x, y);
                     pixel = pixel.Clip(-0.5, 255.5) - target[x, y];
                     total += pixel * pixel;
@@ -506,7 +505,9 @@ namespace WaveletExperiment
     {
         public int Brightness;
         public int X, Y, W, H, A;
+        public int MinX, MinY, MaxX, MaxY;
 
+        private bool _precalculated = false;
         private double mXX, mXY, mYX, mYY, mXO, mYO;
 
         public override string ToString() { return $"X={X}; Y={Y}; W={W}; H={H}; A={A}; B={Brightness}"; }
@@ -526,12 +527,16 @@ namespace WaveletExperiment
             Brightness = parts[5];
         }
 
+        public void Invalidate()
+        {
+            // to be called after modifying X/Y/W/H/A - currently entirely manual and error-prone... TODO
+            _precalculated = false;
+        }
+
         public void Precalculate()
         {
-            if (W < H / 4)
-                W = H / 4;
-            if (H < W / 4)
-                H = W / 4;
+            if (_precalculated)
+                return;
             var cos = Math.Cos(A / 180.0 * Math.PI);
             var sin = Math.Sin(A / 180.0 * Math.PI);
             mXX = cos * 4.0 / W;
@@ -540,6 +545,14 @@ namespace WaveletExperiment
             mYX = -sin * 4.0 / H;
             mYY = cos * 4.0 / H;
             mYO = (X * sin - Y * cos) / H;
+
+            var size = W > H ? W : H;
+            MinX = (X - size - 3) >> 2;
+            MaxX = (X + size + 3) >> 2;
+            MinY = (Y - size - 3) >> 2;
+            MaxY = (Y + size + 3) >> 2;
+
+            _precalculated = true;
         }
 
         public double Calculate(int x, int y)
@@ -562,15 +575,24 @@ namespace WaveletExperiment
         public void ApplyVector(int[] vector, int offset, bool negate)
         {
             int mul = negate ? -1 : 1;
-            X = (X + vector[offset + 0] * mul).ClipMin(1);
-            Y = (Y + vector[offset + 1] * mul).ClipMin(1);
-            W = (W + vector[offset + 2] * mul).ClipMin(1);
-            H = (H + vector[offset + 3] * mul).ClipMin(1);
+            X = (X + vector[offset + 0] * mul);
+            Y = (Y + vector[offset + 1] * mul);
+            W = (W + vector[offset + 2] * mul);
+            H = (H + vector[offset + 3] * mul);
             A = (A + vector[offset + 4] * mul + 360) % 360;
             Brightness = (Brightness + vector[offset + 5] * mul).Clip(-260, 260);
+            if (X < 1) X = 1;
+            if (Y < 1) Y = 1;
+            if (W < 1) W = 1;
+            if (W > 99999) W = 99999;
+            if (H < 1) H = 1;
+            if (H > 99999) H = 99999;
+            if (W < H / 4) W = H / 4;
+            if (H < W / 4) H = W / 4;
+            _precalculated = false;
         }
 
-        public void BoundingBox(out int minX, out int minY, out int maxX, out int maxY)
+        public void BoundingBoxPrecise(out int minX, out int minY, out int maxX, out int maxY)
         {
             var sinSq = Math.Sin(A / 180.0 * Math.PI);
             sinSq *= sinSq;

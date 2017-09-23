@@ -214,7 +214,7 @@ namespace WaveletExperiment
                             vector[v] = multiplier;
                             wavelets[w].ApplyVector(vector, 0, false);
                             var newError = TotalRmsError(wavelets[w], img, target);
-                            if (curError > newError)
+                            if (curError / newError > 1.00000001) // the floating point errors mean that our optimized loop produces marginally different results to the initial full evaluation at the top, causing infinite loops if we treat a last d.p. change is an improvement
                             {
                                 curError = newError;
                                 best = wavelets.Select(x => x.Clone()).ToArray();

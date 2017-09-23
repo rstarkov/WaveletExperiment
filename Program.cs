@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using RT.Util;
@@ -440,31 +441,28 @@ namespace WaveletExperiment
             set { Data[y * Width + x] = value; }
         }
 
-        public unsafe BitmapRam ToBitmapRam()
+        public unsafe void Save(string path)
         {
-            var result = new BitmapRam(Width, Height);
-            using (result.UseWrite())
+            using (var bmp = new Bitmap(Width, Height, PixelFormat.Format24bppRgb))
             {
+                var bmpData = bmp.LockBits(new Rectangle(0, 0, Width, Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
                 for (int y = 0; y < Height; y++)
                 {
-                    byte* end = result.Data + y * result.Stride + 4 * Width;
+                    byte* data = ((byte*) bmpData.Scan0) + y * bmpData.Stride;
+                    byte* end = data + 3 * Width;
                     int x = 0;
-                    for (byte* data = result.Data + y * result.Stride; data < end; x++)
+                    while (data < end)
                     {
                         byte val = (byte) ((int) Math.Round(Data[y * Width + x])).Clip(0, 255);
                         *(data++) = val;
                         *(data++) = val;
                         *(data++) = val;
-                        *(data++) = 0xFF;
+                        x++;
                     }
                 }
+                bmp.Save(path);
+                //ToBitmapRam().ToBitmapGdi().Bitmap.Save(path);
             }
-            return result;
-        }
-
-        public void Save(string path)
-        {
-            ToBitmapRam().ToBitmapGdi().Bitmap.Save(path);
         }
 
         public Surface Clone()

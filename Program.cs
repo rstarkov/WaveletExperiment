@@ -303,19 +303,89 @@ namespace WaveletExperiment
             dump(img);
         }
 
-        private static void ApplyWavelets(Surface img, IEnumerable<Wavelet> wavelets, bool invert = false)
+        public static void ApplyWavelets(Surface img, IEnumerable<Wavelet> wavelets, bool invert = false)
         {
             double mul = invert ? -1 : 1;
             foreach (var wavelet in wavelets)
+            {
                 wavelet.Precalculate();
-            for (int y = 0; y < img.Height; y++)
-                for (int x = 0; x < img.Width; x++)
+                int xStart = (wavelet.X / 4).Clip(0, img.Width - 1);
+                int yStart = (wavelet.Y / 4).Clip(0, img.Height - 1);
+                // It's possible for the clipped starting point to be outside the ellipse, which would make the entire wavelet invisible even if a part of the ellipse
+                // actually protrudes into the image. This is OK though, the optimizer will just have to avoid such placements.
+
+                int minX = xStart;
+                int maxX = xStart;
+                int yDir = -1;
+                int y = yStart;
+                double val;
+                while (true)
                 {
-                    double pixel = img[x, y];
-                    foreach (var wavelet in wavelets)
-                        pixel += wavelet.Calculate(x, y) * mul;
-                    img[x, y] = pixel;
+                    int x = minX;
+                    val = wavelet.Calculate(x, y) * mul;
+                    bool hadNonZero = val != 0;
+                    if (hadNonZero)
+                    {
+                        img[x, y] += val;
+                        // move left from minX
+                        while (true)
+                        {
+                            x--;
+                            if (x < 0)
+                                break;
+                            val = wavelet.Calculate(x, y) * mul;
+                            if (val == 0)
+                                break;
+                            img[x, y] += val;
+                        }
+                        var wasMinX = minX;
+                        minX = x + 1; // last X that wasn't zero
+                        x = wasMinX;
+                    }
+                    // move right from original minX
+                    // hadNonZero continues to indicate whether we're yet to find the first non-zero pixel on this right-directed scan
+                    while (true)
+                    {
+                        x++; // we've already processed the pixel at X
+                        if (x >= img.Width)
+                            break;
+                        val = wavelet.Calculate(x, y) * mul;
+                        if (val == 0)
+                        {
+                            if (!hadNonZero)
+                                continue;
+                            break;
+                        }
+                        if (!hadNonZero)
+                        {
+                            hadNonZero = true;
+                            minX = x;
+                        }
+                        img[x, y] += val;
+                    }
+                    maxX = x - 1; // last X that wasn't zero
+
+                    if (hadNonZero)
+                    {
+                        y += yDir;
+                    }
+                    if (!hadNonZero || y < 0 || y >= img.Height)
+                    {
+                        // we're done with the current Y direction
+                        if (yDir == -1)
+                        {
+                            yDir = 1;
+                            y = yStart + 1;
+                            minX = xStart;
+                            maxX = xStart;
+                            if (y >= img.Height)
+                                break; // we're done with the whole thing
+                        }
+                        else
+                            break; // we're done with the whole thing
+                    }
                 }
+            }
         }
 
         private static double TotalRmsError(Wavelet[] wavelets, Surface initial, Surface target)

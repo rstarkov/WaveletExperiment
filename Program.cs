@@ -28,34 +28,6 @@ namespace WaveletExperiment
             target.Save("target.png");
             Rnd.Reset(12346);
 
-            for (int dx = 0; dx < 4; dx++)
-                for (int dy = 0; dy < 4; dy++)
-                    for (int a = 0; a < 360; a++)
-                    {
-                        var wvl = new Wavelet { X = 110 * 4 + dx, Y = 90 * 4 + dy, W = 20 * 4+Rnd.Next(0,4), H = 80 * 4 + Rnd.Next(0, 4), A = a, Brightness = 128 };
-                        var surf = new Surface(200, 200);
-                        wvl.BoundingBox(out int minX, out int minY, out int maxX, out int maxY);
-                        for (int x = minX; x <= maxX; x++)
-                        {
-                            if (x < 0 || x >= surf.Width)
-                                continue;
-                            if (minY > 0 && minY <= surf.Height)
-                                surf[x, minY] = 128;
-                            if (maxY > 0 && maxY <= surf.Height)
-                                surf[x, maxY] = 128;
-                        }
-                        for (int y = minY; y <= maxY; y++)
-                        {
-                            if (y < 0 || y >= surf.Height)
-                                continue;
-                            if (minX > 0 && minX <= surf.Width)
-                                surf[minX, y] = 128;
-                            if (maxX >= 0 && maxX <= surf.Width)
-                                surf[maxX, y] = 128;
-                        }
-                        Optimizer.ApplyWavelets(surf, new[] { wvl });
-                        surf.Save($"test-{a:000}-{dx}-{dy}.png");
-                    }
             return;
 
             var opt = new Optimizer(target);
@@ -492,7 +464,6 @@ namespace WaveletExperiment
                     }
                 }
                 bmp.Save(path);
-                //ToBitmapRam().ToBitmapGdi().Bitmap.Save(path);
             }
         }
 
@@ -557,7 +528,6 @@ namespace WaveletExperiment
 
             if (lengthSquared > 1)
                 return 0;
-            return Brightness;
             return Brightness * Math.Exp(-lengthSquared * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
             // 6.23... = ln 512, ie the point at which the value becomes less than 0.5 when scaled by 256, ie would round to 0
         }

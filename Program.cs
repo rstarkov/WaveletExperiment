@@ -198,10 +198,10 @@ namespace WaveletExperiment
             wavelets = best.Select(w => w.Clone()).ToArray();
             while (true)
             {
-                bool improvements = false;
                 var img = initial.Clone();
                 img.ApplyWavelets(wavelets);
-                var curError = TotalRmsError(img, target);
+                var bestError = TotalRmsError(img, target);
+                var initialError = bestError;
                 for (int w = 0; w < wavelets.Length; w++)
                 {
                     img.ApplyWavelets(new[] { wavelets[w] }, invert: true);
@@ -214,11 +214,10 @@ namespace WaveletExperiment
                             vector[v] = multiplier;
                             wavelets[w].ApplyVector(vector, 0, false);
                             var newError = TotalRmsError(wavelets[w], img, target);
-                            if (curError / newError > 1.00000001) // the floating point errors mean that our optimized loop produces marginally different results to the initial full evaluation at the top, causing infinite loops if we treat a last d.p. change is an improvement
+                            if (newError < bestError)
                             {
-                                curError = newError;
+                                bestError = newError;
                                 best = wavelets.Select(x => x.Clone()).ToArray();
-                                improvements = true;
                                 multiplier *= 2;
                             }
                             else if (multiplier != 1 && multiplier != -1)
@@ -241,8 +240,8 @@ namespace WaveletExperiment
                     }
                     img.ApplyWavelets(new[] { wavelets[w] });
                 }
-                Console.WriteLine($"Tweaked error: {curError}");
-                if (!improvements)
+                Console.WriteLine($"Tweaked error: {bestError}");
+                if (!(bestError < initialError))
                     return best;
             }
         }

@@ -212,6 +212,10 @@ namespace WaveletExperiment
                     }
                     img.ApplyWavelets(new[] { wavelets[w] });
                 }
+                // Re-evaluate fully because the inner loop's error evaluation is subject to floating point errors compared to the initial error
+                img = initial.Clone();
+                img.ApplyWavelets(best);
+                bestError = TotalRmsError(img, target);
                 Console.WriteLine($"Tweaked error: {bestError}");
                 if (!(bestError < initialError))
                     return best;

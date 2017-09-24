@@ -157,9 +157,18 @@ namespace WaveletExperiment
                 if (best.Length == 0) // keep trying until we find at least one suitable wavelet
                     iter = 0;
             }
-            best = OptimizeWavelets(best, initial, target, 150, scale / 6);
+            Console.Write($"Best error: {bestError}. Longer optimize...");
+            var bestNew = OptimizeWavelets(best, initial, target, 150, scale / 6);
+            var bestNewError = TotalRmsError(bestNew, initial, target);
+            if (bestNewError < bestError)
+            {
+                Console.WriteLine($" improved to {bestNewError}");
+                best = bestNew;
+            }
+            else
+                Console.WriteLine($" did not improve");
+#warning TODO: it's not supposed to get worse! (or is it?)
             best = TweakWavelets(best, initial, target);
-            Console.WriteLine($"Best error: {bestError}");
             return best;
         }
 

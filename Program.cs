@@ -350,6 +350,7 @@ namespace WaveletExperiment
         public int Width { get; private set; }
         public int Height { get; private set; }
         public double[] Data { get; private set; }
+        public int WaveletCount { get; private set; } = 0;
 
         public Surface(int width, int height)
         {
@@ -404,7 +405,7 @@ namespace WaveletExperiment
 
         public Surface Clone()
         {
-            return new Surface(Width, Height) { Data = Data.ToArray() };
+            return new Surface(Width, Height) { Data = Data.ToArray(), WaveletCount = WaveletCount };
         }
 
         public void CopyTo(Surface target)
@@ -419,6 +420,7 @@ namespace WaveletExperiment
             double mul = invert ? -1 : 1;
             foreach (var wavelet in wavelets)
             {
+                WaveletCount += invert ? -1 : 1;
                 wavelet.Precalculate();
                 int xStart = (wavelet.X / 4).Clip(0, Width - 1);
                 int yStart = (wavelet.Y / 4).Clip(0, Height - 1);

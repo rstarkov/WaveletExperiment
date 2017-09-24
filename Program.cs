@@ -231,7 +231,7 @@ namespace WaveletExperiment
             }
         }
 
-        private static Wavelet[] OptimizeWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations, int sizeLimit)
+        private static Wavelet[] OptimizeWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations, double sizeLimit)
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
             var bestError = TotalRmsError(best, initial, target);
@@ -247,7 +247,7 @@ namespace WaveletExperiment
                     for (int i = 0; i < wavelets.Length; i++)
                         for (int mul = 1; mul <= Math.Abs(multiplier); mul++)
                             wavelets[i].ApplyVector(vector, i * 6, negate: multiplier < 0);
-                    if (wavelets.Any(w => w.W < sizeLimit || w.H < sizeLimit))
+                    if (wavelets.Any(w => w.W < sizeLimit * 4 || w.H < sizeLimit * 4))
                         break;
                     var newError = TotalRmsError(wavelets, initial, target);
                     if (newError < curBestError)

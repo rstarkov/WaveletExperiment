@@ -4,17 +4,19 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Text;
 using RT.Util;
 using RT.Util.ExtensionMethods;
 using TankIconMaker;
 
 /// <summary>
 /// - scale should be a running average of recent best wavelets so that the RNG is centered around the average
-/// --- but need to decide when to tweak "current scale" once there is no longer a clear time for that
-/// - breadth-first tweaking? where we find the most responsive parameter to tweak and tweak it first
-/// - optimize should carry on as long as it's able to find reasonably good improvements
-/// - end Tweak when improvements are too small
-/// - multi-threaded Tweak
+/// - limited passes tweak after every wavelet
+/// - allow narrower wavelets and full-tweak
+/// - targeted drop of wavelets around high error areas
+/// - high-pass filter the original image to find important pixels, encode / compress differences for those, then optimize wavelets based on compressed size
+/// - sine wave modulated by the current gaussian wavelet described by three extra numbers: frequency, phase, min brightness
+/// 
 /// - at a certain point (scale-based? improvement slows down?) switch to analysing error locations and optimizing worst errors specifically, with local RNG and possibly a different metric (edge/feature-based?)
 /// </summary>
 
@@ -31,69 +33,28 @@ namespace WaveletExperiment
             return;
 
             var opt = new Optimizer(target);
+            var start1 = DateTime.UtcNow;
             while (true)
+            {
+                var start2 = DateTime.UtcNow;
                 opt.Optimize();
+                Console.WriteLine($"Step time: {(DateTime.UtcNow - start2).TotalSeconds:#,0.000}s. Total time: {(DateTime.UtcNow - start1).TotalSeconds:#,0.000}s");
+            }
         }
     }
 
     class Optimizer
     {
         private double _curScale;
-        private double _curTotalAreaCovered;
-        private Surface _curImage, _targetImage;
-        private Surface _imageAtScaleStart;
-        private List<Wavelet> _finalWavelets = new List<Wavelet>();
-        private List<Wavelet> _curScaleWavelets;
-        private int dumpIndex = 0;
+        private double _curScaleAreaCovered;
+        private Surface _targetImage;
+        public List<Wavelet> _allWavelets = new List<Wavelet>();
 
         public Optimizer(Surface target)
         {
             _targetImage = target;
-            _curImage = new Surface(target.Width, target.Height);
             _curScale = target.Width * 4;
-            _curTotalAreaCovered = 0;
-            _imageAtScaleStart = _curImage.Clone();
-            _curScaleWavelets = new List<Wavelet>();
-        }
-
-        public Optimizer(Surface target, string loadFrom) : this(target)
-        {
-            var lines = File.ReadAllLines(loadFrom);
-            var finals = new List<Wavelet>();
-            foreach (var line in lines)
-            {
-                if (line.StartsWith("X"))
-                {
-                    var wavelet = new Wavelet(line);
-                    _curImage.ApplyWavelets(new[] { wavelet });
-                    _curTotalAreaCovered += wavelet.Area();
-                    _curScaleWavelets.Add(wavelet);
-                }
-                else if (line.StartsWith("FINAL: X"))
-                {
-                    finals.Add(new Wavelet(line.Substring("FINAL: ".Length)));
-                }
-                else if (line.StartsWith("Scale: "))
-                {
-                    int finalsCount = (int) Math.Sqrt(finals.Count);
-                    RT.Util.Ut.Assert(finalsCount * finalsCount == finals.Count);
-                    finals = finals.Take(finalsCount).ToList();
-                    _finalWavelets.AddRange(finals);
-
-                    _imageAtScaleStart.ApplyWavelets(finals);
-                    _curScaleWavelets.Clear();
-                    _curImage = _imageAtScaleStart.Clone();
-                    _curScale *= 0.70;
-                    _curTotalAreaCovered = 0;
-                    RT.Util.Ut.Assert(line == $"Scale: {_curScale / 4.0:0.00}");
-
-                    finals.Clear();
-                }
-            }
-            dump(_imageAtScaleStart, "-loaded-at-start");
-            _curScaleWavelets.Clear();
-            _curImage = _imageAtScaleStart.Clone();
-            _curTotalAreaCovered = 0;
+            _curScaleAreaCovered = 0;
         }
 
         public void LoadWavelets(string path, double scale)
@@ -105,59 +66,78 @@ namespace WaveletExperiment
 
         public void LoadWavelets(IEnumerable<Wavelet> wavelets, double scale)
         {
-            _finalWavelets = wavelets.ToList();
-            _curScaleWavelets = new List<Wavelet>();
-            _curTotalAreaCovered = 0;
+            _allWavelets = wavelets.ToList();
+            _curScaleAreaCovered = 0;
             _curScale = scale;
-            _curImage = new Surface(_targetImage.Width, _targetImage.Height);
-            _curImage.ApplyWavelets(_finalWavelets);
-            _imageAtScaleStart = _curImage.Clone();
-            dump(_curImage, "-loaded");
         }
 
         public void Optimize()
         {
-            var wasError = TotalRmsError(_curImage, _targetImage);
-            var wavelets = ChooseWavelets(_curImage, _targetImage, (int) Math.Round(_curScale));
-            var newError = TotalRmsError(wavelets, _curImage, _targetImage);
-            if (wasError == newError)
+            var img = new Surface(_targetImage.Width, _targetImage.Height);
+            img.ApplyWavelets(_allWavelets);
+            var newWavelet = ChooseRandomWavelet(img, _targetImage, (int) Math.Round(_curScale));
+            _allWavelets.Add(newWavelet);
+            _curScaleAreaCovered += newWavelet.Area();
+
+            if (_allWavelets.Count <= 10 || (_allWavelets.Count < 50 && _allWavelets.Count % 2 == 0) || (_allWavelets.Count < 200 && _allWavelets.Count % 5 == 0) || (_allWavelets.Count % 20 == 0))
             {
-                Console.WriteLine("Error didn't change; a bad wavelet must have been optimized off the screen");
-                return;
+                Console.WriteLine("Tweak all...");
+                img = new Surface(_targetImage.Width, _targetImage.Height);
+                _allWavelets = TweakWavelets(_allWavelets.ToArray(), img, _targetImage).ToList();
             }
-            _curImage.ApplyWavelets(wavelets);
-            foreach (var wavelet in wavelets)
+
+            var newError = TotalRmsError(_allWavelets, new Surface(_targetImage.Width, _targetImage.Height), _targetImage);
+            File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {_allWavelets.Count} wavelets: {newError}" });
+            File.WriteAllLines("wavelets-final.txt", _allWavelets.Select(w => "FINAL: " + w.ToString()));
+            File.AppendAllLines("wavelets-final.txt", new[] { $"RMS FINAL error at {_allWavelets.Count} wavelets: {newError}" });
+
+            if (_curScaleAreaCovered > 2 * _targetImage.Width * _targetImage.Height)
             {
-                _curTotalAreaCovered += wavelet.Area();
-                _curScaleWavelets.Add(wavelet);
-            }
-            File.AppendAllLines("wavelets.txt", wavelets.Select(w => w.ToString()));
-            File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {_finalWavelets.Count + _curScaleWavelets.Count} wavelets: {newError}" });
-            dump(_curImage);
-            if (_curTotalAreaCovered > 2 * _targetImage.Width * _targetImage.Height)
-            {
-                var final = TweakWavelets(_curScaleWavelets.ToArray(), _imageAtScaleStart, _targetImage);
-                _finalWavelets.AddRange(final);
-                _imageAtScaleStart.ApplyWavelets(final);
-                _curScaleWavelets.Clear();
-                _curImage = _imageAtScaleStart.Clone();
-                var finalError = TotalRmsError(_imageAtScaleStart, _targetImage);
-                File.AppendAllLines("wavelets.txt", final.Select(w => "FINAL: " + w.ToString()));
-                File.AppendAllLines("wavelets.txt", new[] { $"RMS FINAL error at {_finalWavelets.Count} wavelets: {finalError}" });
-                File.WriteAllLines("wavelets-final.txt", _finalWavelets.Select(w => "FINAL: " + w.ToString()));
-                File.AppendAllLines("wavelets-final.txt", new[] { $"RMS FINAL error at {_finalWavelets.Count} wavelets: {finalError}" });
-                dump(_imageAtScaleStart, "-tweaked");
                 _curScale *= 0.70;
-                _curTotalAreaCovered = 0;
+                _curScaleAreaCovered = 0;
                 File.AppendAllLines("wavelets.txt", new[] { $"Scale: {_curScale / 4.0:0.00}" });
             }
         }
 
-        public void TweakFinalWavelets()
+        public void TweakAllWavelets()
         {
-            _imageAtScaleStart = new Surface(_targetImage.Width, _targetImage.Height);
-            _finalWavelets = TweakWavelets(_finalWavelets.ToArray(), _imageAtScaleStart, _targetImage).ToList();
-            _imageAtScaleStart.ApplyWavelets(_finalWavelets);
+            var img = new Surface(_targetImage.Width, _targetImage.Height);
+            _allWavelets = TweakWavelets(_allWavelets.ToArray(), img, _targetImage).ToList();
+        }
+
+        private Wavelet ChooseRandomWavelet(Surface initial, Surface target, int scale)
+        {
+            Wavelet best = null;
+            double bestError = TotalRmsError(initial, target);
+            double startingError = bestError;
+            Console.Write($"ChooseRandomWavelet initial error: {bestError}...");
+            for (int iter = 0; iter < 10000; iter++)
+            {
+                var wavelet = new Wavelet
+                {
+                    X = Rnd.Next(0, target.Width * 4),
+                    Y = Rnd.Next(0, target.Height * 4),
+                    W = Rnd.Next(scale / 8, scale),
+                    H = Rnd.Next(scale / 8, scale),
+                    A = Rnd.Next(0, 360),
+                    Brightness = Rnd.Next(-255, 255 + 1),
+                };
+                var newError = TotalRmsError(wavelet, initial, target);
+                if (newError < bestError)
+                {
+                    bestError = newError;
+                    best = wavelet;
+                    dumpProgress(bestError, initial, new[] { best });
+                }
+                if (best == null) // keep trying until we find at least one suitable wavelet
+                    iter = 0;
+            }
+            Console.WriteLine($"best error: {bestError}, tweaking...");
+            best = TweakWavelets(new[] { best }, initial, target)[0];
+            var doubleCheckError = TotalRmsError(best, initial, target);
+            if (doubleCheckError >= startingError)
+                throw new Exception("ChooseRandomWavelet: error check failed");
+            return best;
         }
 
         private Wavelet[] ChooseWavelets(Surface initial, Surface target, int scale)
@@ -192,7 +172,7 @@ namespace WaveletExperiment
             return best;
         }
 
-        private static Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target)
+        private Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target)
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
             wavelets = best.Select(w => w.Clone()).ToArray();
@@ -218,6 +198,7 @@ namespace WaveletExperiment
                             {
                                 bestError = newError;
                                 best = wavelets.Select(x => x.Clone()).ToArray();
+                                dumpProgress(bestError, initial, best);
                                 multiplier *= 2;
                             }
                             else if (multiplier != 1 && multiplier != -1)
@@ -290,20 +271,16 @@ namespace WaveletExperiment
             return best;
         }
 
-        private void dump(Surface img, string suffix = "")
+        private double _lastDumpProgressError = double.NaN;
+        private void dumpProgress(double error, Surface initial, Wavelet[] wavelets)
         {
-            try
+            if (double.IsNaN(_lastDumpProgressError) || (_lastDumpProgressError / error > 1.001))
             {
-                img.Save($"dump{dumpIndex:00000}{suffix}.png");
+                _lastDumpProgressError = error;
+                var img = initial.Clone();
+                img.ApplyWavelets(wavelets);
+                img.Save($"dump-progress-{error:000000.0000}-{img.WaveletCount:000}.png");
             }
-            catch { }
-            dumpIndex++;
-        }
-        private void dump(Surface initial, Wavelet[] wavelets)
-        {
-            var img = initial.Clone();
-            img.ApplyWavelets(wavelets);
-            dump(img);
         }
 
         public static double TotalRmsError(Surface current, Surface target)

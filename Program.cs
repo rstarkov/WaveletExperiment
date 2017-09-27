@@ -344,7 +344,7 @@ namespace WaveletExperiment
                 foreach (var wvl in wavelets)
                     file.WriteUInt32Optim((uint) wvl.A);
                 foreach (var wvl in wavelets)
-                    file.WriteUInt32Optim((uint) wvl.Brightness);
+                    file.WriteInt32Optim(wvl.Brightness);
             }
         }
 

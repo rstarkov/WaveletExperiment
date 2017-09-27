@@ -171,47 +171,6 @@ namespace WaveletExperiment
             return best;
         }
 
-        private Wavelet[] ChooseWavelets(Surface initial, Surface target, double scale)
-        {
-            Wavelet[] best = new Wavelet[0];
-            double bestError = TotalRmsError(best, initial, target);
-            for (int iter = 0; iter < 25; iter++)
-            {
-                Console.Write(iter + " ");
-                var wavelets = Enumerable.Range(0, 1).Select(_ => new Wavelet
-                {
-                    X = Rnd.Next(0, target.Width * 4),
-                    Y = Rnd.Next(0, target.Height * 4),
-                    W = Rnd.Next((int) (4 * scale / 2), (int) (4 * scale * 2)),
-                    H = Rnd.Next((int) (4 * scale / 2), (int) (4 * scale * 2)),
-                    A = Rnd.Next(0, 360),
-                    Brightness = Rnd.Next(-255, 255 + 1),
-                }).ToArray();
-                wavelets = OptimizeWavelets(wavelets, initial, target, 15, scale / 6);
-                var error = TotalRmsError(wavelets, initial, target);
-                if (bestError > error)
-                {
-                    bestError = error;
-                    best = wavelets;
-                }
-                if (best.Length == 0) // keep trying until we find at least one suitable wavelet
-                    iter = 0;
-            }
-            Console.Write($"Best error: {bestError}. Longer optimize...");
-            var bestNew = OptimizeWavelets(best, initial, target, 15000, scale / 6);
-            var bestNewError = TotalRmsError(bestNew, initial, target);
-            if (bestNewError < bestError)
-            {
-                Console.WriteLine($" improved to {bestNewError}");
-                best = bestNew;
-            }
-            else
-                Console.WriteLine($" did not improve");
-#warning TODO: it's not supposed to get worse! (or is it?)
-            best = TweakWavelets(best, initial, target);
-            return best;
-        }
-
         private Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations = 0)
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
@@ -278,55 +237,6 @@ namespace WaveletExperiment
                 if (!(bestError < initialError))
                     return best;
             }
-        }
-
-        public static Wavelet[] OptimizeWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations, double sizeLimit)
-        {
-            var best = wavelets.Select(w => w.Clone()).ToArray();
-            var bestError = TotalRmsError(best, initial, target);
-            Console.Write($"OptimizeWavelets initial error {bestError}...");
-            for (int iter = 0; iter < iterations; iter++)
-            {
-                int[] vector = Enumerable.Range(0, 6 * wavelets.Length).Select(_ => Rnd.Next(-8, 8 + 1)).ToArray();
-                wavelets = best.Select(w => w.Clone()).ToArray();
-                var curBestError = TotalRmsError(wavelets, initial, target);
-                var curBest = wavelets;
-                int multiplier = 1;
-                while (true)
-                {
-                    for (int i = 0; i < wavelets.Length; i++)
-                        for (int mul = 1; mul <= Math.Abs(multiplier); mul++)
-                            wavelets[i].ApplyVector(vector, i * 6, negate: multiplier < 0);
-                    if (wavelets.Any(w => w.W < sizeLimit * 4 || w.H < sizeLimit * 4))
-                        break;
-                    var newError = TotalRmsError(wavelets, initial, target);
-                    if (newError < curBestError)
-                    {
-                        curBestError = newError;
-                        curBest = wavelets.Select(w => w.Clone()).ToArray();
-                        multiplier *= 2;
-                    }
-                    else if (multiplier != 1 && multiplier != -1)
-                    {
-                        wavelets = curBest.Select(w => w.Clone()).ToArray();
-                        multiplier /= 2;
-                    }
-                    else if (multiplier == 1)
-                    {
-                        wavelets = curBest.Select(w => w.Clone()).ToArray();
-                        multiplier = -1;
-                    }
-                    else
-                        break;
-                }
-                if (curBestError < bestError)
-                {
-                    best = curBest.Select(w => w.Clone()).ToArray();
-                    bestError = curBestError;
-                }
-            }
-            Console.WriteLine($"final error {bestError}");
-            return best;
         }
 
         private double _lastDumpProgressError = double.NaN;

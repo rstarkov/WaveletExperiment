@@ -4,19 +4,26 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
-using System.Text;
 using RT.Util;
 using RT.Util.ExtensionMethods;
 using RT.Util.Streams;
 using TankIconMaker;
 
 /// <summary>
-/// - limited passes tweak after every wavelet
-/// - allow narrower wavelets and full-tweak
-/// - targeted drop of wavelets around high error areas
-/// - high-pass filter the original image to find important pixels, encode / compress differences for those, then optimize wavelets based on compressed size
 /// - sine wave modulated by the current gaussian wavelet described by three extra numbers: frequency, phase, min brightness
 /// 
+/// ENTROPY CODING:
+/// - calculate and record the true frequency of the most frequent symbols
+/// - encode wavelet parameters using an exponential distribution arithmetic coding
+/// - encode wavelet positions using Timwi's CEC idea?
+/// - encode residuals using Timwi's CEC idea for optimal encoding of zeroes
+/// - "slightly lossy" mode where residuals below a threshold are not encoded
+/// - "slightly lossy" dithering to make higher thresholds more acceptable visually?
+/// - encode residuals using scaling? 1, 2x2, 4x4 etc
+/// - in lossless mode, it's critical to obtain residuals by reading wavelets in encoded order because addition of doubles is only approximately commutative
+/// 
+/// - low-pass filter in early stages to force initial wavelets to encode low-frequency info?
+/// - high-pass filter the original image to find important pixels, encode / compress differences for those, then optimize wavelets based on compressed size
 /// - at a certain point (scale-based? improvement slows down?) switch to analysing error locations and optimizing worst errors specifically, with local RNG and possibly a different metric (edge/feature-based?)
 /// </summary>
 
@@ -59,15 +66,16 @@ namespace WaveletExperiment
         public void LoadWavelets(IEnumerable<Wavelet> wavelets)
         {
             _allWavelets = wavelets.ToList();
+            _lastDumpProgressError = TotalRmsError(_allWavelets, new Surface(_targetImage.Width, _targetImage.Height), _targetImage);
         }
 
         private double calcWaveletScale()
         {
-            if (_allWavelets.Count == 0)
-                return _targetImage.Width * 4;
-            double result = Math.Max(_allWavelets[0].W / 4.0, _allWavelets[0].H / 4.0);
+            if (_allWavelets.Count <= 10)
+                return _targetImage.Width * 0.6;
+            double result = Math.Max((_allWavelets[0].W / 4.0).ClipMax(_targetImage.Width), (_allWavelets[0].H / 4.0).ClipMax(_targetImage.Height));
             foreach (var wvl in _allWavelets.Skip(1))
-                result = 0.9 * result + 0.1 * Math.Max(wvl.W / 4.0, wvl.H / 4.0);
+                result = 0.9 * result + 0.1 * Math.Max((wvl.W / 4.0).ClipMax(_targetImage.Width), (wvl.H / 4.0).ClipMax(_targetImage.Height));
             return result;
         }
 
@@ -75,7 +83,8 @@ namespace WaveletExperiment
         {
             var img = new Surface(_targetImage.Width, _targetImage.Height);
             img.ApplyWavelets(_allWavelets);
-            var newWavelet = ChooseRandomWavelet(img, _targetImage, calcWaveletScale());
+            var scale = calcWaveletScale();
+            var newWavelet = ChooseRandomWavelet(img, _targetImage, scale, _allWavelets.Count > 20, scale < 50);
             _allWavelets.Add(newWavelet);
 
             if (_allWavelets.Count <= 10 || (_allWavelets.Count < 50 && _allWavelets.Count % 2 == 0) || (_allWavelets.Count < 200 && _allWavelets.Count % 5 == 0) || (_allWavelets.Count % 20 == 0))
@@ -97,24 +106,54 @@ namespace WaveletExperiment
             _allWavelets = TweakWavelets(_allWavelets.ToArray(), img, _targetImage).ToList();
         }
 
-        private Wavelet ChooseRandomWavelet(Surface initial, Surface target, double scale)
+        private Wavelet ChooseRandomWavelet(Surface initial, Surface target, double scale, bool tweakEveryGuess, bool errorGuided)
         {
+            Surface errors = null;
+            if (errorGuided)
+            {
+                errors = target.Clone();
+                var cur = initial.Clone();
+                cur.Process(p => p.Clip(0, 255));
+                errors.Merge(cur, (t, c) => (t - c) * (t - c));
+                errors.Blur3();
+                errors.Blur3();
+                var maxError = errors.Data.Max();
+                errors.Process(p => p / maxError);
+                //errors.Process(p => p * 255);
+                //errors.Save("errors.png");
+            }
+
             Wavelet best = null;
             double bestError = TotalRmsError(initial, target);
             double startingError = bestError;
-            Console.Write($"ChooseRandomWavelet initial error: {bestError}, scale {scale:0.0}...");
-            for (int iter = 0; iter < 10000; iter++)
+            Console.Write($"ChooseRandomWavelet initial error: {bestError}, scale {scale:0.0}, {(errorGuided ? "error-guided" : "random")}...");
+            for (int iter = 0; iter < 2000; iter++)
             {
+                int x, y;
+                while (true)
+                {
+                    x = Rnd.Next(0, target.Width);
+                    y = Rnd.Next(0, target.Height);
+                    if (errors == null || Rnd.NextDouble() < errors[x, y])
+                        break;
+                }
+
                 var wavelet = new Wavelet
                 {
-                    X = Rnd.Next(0, target.Width * 4),
-                    Y = Rnd.Next(0, target.Height * 4),
-                    W = Rnd.Next((int) (4 * scale / 2), (int) (4 * scale * 2)),
-                    H = Rnd.Next((int) (4 * scale / 2), (int) (4 * scale * 2)),
+                    X = x * 4 + Rnd.Next(0, 4),
+                    Y = y * 4 + Rnd.Next(0, 4),
+                    W = Rnd.Next((int) (4 * scale / 4), (int) (4 * scale * 4)),
+                    H = Rnd.Next((int) (4 * scale / 4), (int) (4 * scale * 4)),
                     A = Rnd.Next(0, 360),
                     Brightness = Rnd.Next(-255, 255 + 1),
                 };
                 var newError = TotalRmsError(wavelet, initial, target);
+                Console.Write($"ChRand {iter}: ");
+                if (tweakEveryGuess)
+                {
+                    wavelet = TweakWavelets(new[] { wavelet }, initial, target, 10)[0];
+                    newError = TotalRmsError(wavelet, initial, target);
+                }
                 if (newError < bestError)
                 {
                     bestError = newError;
@@ -173,7 +212,7 @@ namespace WaveletExperiment
             return best;
         }
 
-        private Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target)
+        private Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations = 0)
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
             wavelets = best.Select(w => w.Clone()).ToArray();
@@ -183,6 +222,15 @@ namespace WaveletExperiment
                 img.ApplyWavelets(wavelets);
                 var bestError = TotalRmsError(img, target);
                 var initialError = bestError;
+
+                if (iterations > 0)
+                    iterations--;
+                if (iterations == 1)
+                {
+                    Console.WriteLine($"Tweaked error (early exit): {bestError}");
+                    return best;
+                }
+
                 for (int w = 0; w < wavelets.Length; w++)
                 {
                     img.ApplyWavelets(new[] { wavelets[w] }, invert: true);
@@ -797,6 +845,63 @@ namespace WaveletExperiment
         {
             for (int i = 0; i < Data.Length; i++)
                 Data[i] = process(Data[i]);
+        }
+
+        public void Blur3()
+        {
+            var newData = new double[Data.Length];
+            // pretty inefficient but good enough for now
+            for (int y = 0; y < Height; y++)
+                for (int x = 0; x < Width; x++)
+                {
+                    int count = 0;
+                    double pix = 0;
+                    if (x > 0)
+                    {
+                        if (y > 0)
+                        {
+                            pix += this[x - 1, y - 1];
+                            count++;
+                        }
+                        pix += this[x - 1, y];
+                        count++;
+                        if (y < Height - 1)
+                        {
+                            pix += this[x - 1, y + 1];
+                            count++;
+                        }
+                    }
+                    if (y > 0)
+                    {
+                        pix += this[x, y - 1];
+                        count++;
+                    }
+                    pix += this[x, y];
+                    count++;
+                    if (y < Height - 1)
+                    {
+                        pix += this[x, y + 1];
+                        count++;
+                    }
+                    if (x < Width - 1)
+                    {
+                        if (y > 0)
+                        {
+                            pix += this[x + 1, y - 1];
+                            count++;
+                        }
+                        pix += this[x + 1, y];
+                        count++;
+                        if (y < Height - 1)
+                        {
+                            pix += this[x + 1, y + 1];
+                            count++;
+                        }
+                    }
+
+                    newData[y * Width + x] = pix / count;
+                }
+            Data = newData;
         }
     }
 

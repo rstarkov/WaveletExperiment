@@ -399,6 +399,8 @@ namespace WaveletExperiment
             {
                 bs.WriteDouble(bestTweak1);
                 bs.WriteDouble(bestTweak2);
+                for (int i = 0; i < 20; i++)
+                    bs.WriteUInt32Optim((uint) symbols.Count(s => s == i));
                 file.Write(best);
             }
         }
@@ -407,11 +409,14 @@ namespace WaveletExperiment
         {
             // symbols range from -255 to 255, shifted by 255: [0, 510]
             var frequencies = Enumerable.Range(0, 511).Select(x => (ulong) (100000 * Math.Exp(-tweak1 * (x / 511.0 * tweak2)))).Select(x => x < 1 ? 1 : x).ToArray();
+            for (int i = 0; i < 20; i++)
+                frequencies[i] = (ulong) symbols.Count(s => s == i);
             using (var ms = new MemoryStream())
             {
-                using (var arith = new ArithmeticCodingWriter(ms, frequencies))
-                    foreach (var symbol in symbols)
-                        arith.WriteSymbol(symbol);
+                var arith = new ArithmeticCodingWriter(ms, frequencies);
+                foreach (var symbol in symbols)
+                    arith.WriteSymbol(symbol);
+                arith.Close(false);
                 return ms.ToArray();
             }
         }

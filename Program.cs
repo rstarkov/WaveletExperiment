@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using RT.Util;
 using RT.Util.ExtensionMethods;
+using RT.Util.Streams;
 using TankIconMaker;
 
 /// <summary>
@@ -324,6 +325,96 @@ namespace WaveletExperiment
                 }
             return Math.Sqrt(total);
         }
+
+        public static void EncodeWavelets(string filename, IEnumerable<Wavelet> wavelets, int width, int height)
+        {
+            using (var file = File.Open(filename, FileMode.Create, FileAccess.Write, FileShare.Read))
+            {
+                file.WriteUInt32Optim((uint) width);
+                file.WriteUInt32Optim((uint) height);
+                file.WriteUInt32Optim((uint) wavelets.Count());
+                foreach (var wvl in wavelets)
+                    file.WriteUInt32Optim((uint) wvl.X);
+                foreach (var wvl in wavelets)
+                    file.WriteUInt32Optim((uint) wvl.Y);
+                foreach (var wvl in wavelets)
+                    file.WriteUInt32Optim((uint) wvl.W);
+                foreach (var wvl in wavelets)
+                    file.WriteUInt32Optim((uint) wvl.H);
+                foreach (var wvl in wavelets)
+                    file.WriteUInt32Optim((uint) wvl.A);
+                foreach (var wvl in wavelets)
+                    file.WriteUInt32Optim((uint) wvl.Brightness);
+            }
+        }
+
+        public static void EncodeResiduals(string filename, Surface target, List<Wavelet> wavelets)
+        {
+            var residuals = new Surface(target.Width, target.Height);
+            residuals.ApplyWavelets(wavelets);
+            residuals.Merge(target, (ip, op) => Math.Round(ip).Clip(0, 255) - op);
+            var symbols = residuals.Data.Select(p =>
+            {
+                int symbol = (int) p; // [-255, 255]
+                // transform so that the symbols code for 0 [0], 1 [1], -1 [2], 2 [3], -2 [4], 3 [5], -3 [6] etc in this order
+                if (symbol > 0)
+                    return symbol * 2 - 1;
+                else
+                    return -symbol * 2;
+            }).ToArray();
+
+            var tweak1 = 5.0;
+            var tweak2 = 10.0;
+            byte[] best = encodeResiduals(tweak1, tweak2, symbols);
+            var bestTweak1 = tweak1;
+            var bestTweak2 = tweak2;
+            var dir1 = 0.1;
+            var dir2 = 0.1;
+            int noImprovementCount = 0;
+            while (noImprovementCount < 50)
+            {
+                tweak1 += dir1;
+                tweak2 += dir2;
+                var bytes = encodeResiduals(tweak1, tweak2, symbols);
+                if (best == null || bytes.Length < best.Length)
+                {
+                    best = bytes;
+                    bestTweak1 = tweak1;
+                    bestTweak2 = tweak2;
+                    dir1 *= 1.5;
+                    dir2 *= 1.5;
+                    noImprovementCount = 0;
+                }
+                else
+                {
+                    dir1 = Rnd.NextDouble(-0.1, 0.1);
+                    dir2 = Rnd.NextDouble(-0.1, 0.1);
+                    tweak1 = bestTweak1;
+                    tweak2 = bestTweak2;
+                    noImprovementCount++;
+                }
+            }
+            using (var file = File.Open(filename, FileMode.Create, FileAccess.Write, FileShare.Read))
+            using (var bs = new BinaryStream(file))
+            {
+                bs.WriteDouble(bestTweak1);
+                bs.WriteDouble(bestTweak2);
+                file.Write(best);
+            }
+        }
+
+        private static byte[] encodeResiduals(double tweak1, double tweak2, int[] symbols)
+        {
+            // symbols range from -255 to 255, shifted by 255: [0, 510]
+            var frequencies = Enumerable.Range(0, 511).Select(x => (ulong) (100000 * Math.Exp(-tweak1 * (x / 511.0 * tweak2)))).Select(x => x < 1 ? 1 : x).ToArray();
+            using (var ms = new MemoryStream())
+            {
+                using (var arith = new ArithmeticCodingWriter(ms, frequencies))
+                    foreach (var symbol in symbols)
+                        arith.WriteSymbol(symbol);
+                return ms.ToArray();
+            }
+        }
     }
 
     class Surface
@@ -480,6 +571,20 @@ namespace WaveletExperiment
                     }
                 }
             }
+        }
+
+        public void Merge(Surface surf, Func<double, double, double> merge)
+        {
+            if (Width != surf.Width || Height != surf.Height)
+                throw new ArgumentException();
+            for (int i = 0; i < Data.Length; i++)
+                Data[i] = merge(Data[i], surf.Data[i]);
+        }
+
+        public void Process(Func<double, double> process)
+        {
+            for (int i = 0; i < Data.Length; i++)
+                Data[i] = process(Data[i]);
         }
     }
 

@@ -198,7 +198,7 @@ namespace WaveletExperiment
                     iter = 0;
             }
             Console.Write($"Best error: {bestError}. Longer optimize...");
-            var bestNew = OptimizeWavelets(best, initial, target, 150, scale / 6);
+            var bestNew = OptimizeWavelets(best, initial, target, 15000, scale / 6);
             var bestNewError = TotalRmsError(bestNew, initial, target);
             if (bestNewError < bestError)
             {
@@ -280,10 +280,11 @@ namespace WaveletExperiment
             }
         }
 
-        private static Wavelet[] OptimizeWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations, double sizeLimit)
+        public static Wavelet[] OptimizeWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations, double sizeLimit)
         {
             var best = wavelets.Select(w => w.Clone()).ToArray();
             var bestError = TotalRmsError(best, initial, target);
+            Console.Write($"OptimizeWavelets initial error {bestError}...");
             for (int iter = 0; iter < iterations; iter++)
             {
                 int[] vector = Enumerable.Range(0, 6 * wavelets.Length).Select(_ => Rnd.Next(-8, 8 + 1)).ToArray();
@@ -318,9 +319,13 @@ namespace WaveletExperiment
                     else
                         break;
                 }
-                best = curBest.Select(w => w.Clone()).ToArray();
-                bestError = curBestError;
+                if (curBestError < bestError)
+                {
+                    best = curBest.Select(w => w.Clone()).ToArray();
+                    bestError = curBestError;
+                }
             }
+            Console.WriteLine($"final error {bestError}");
             return best;
         }
 

@@ -43,7 +43,7 @@ namespace WaveletExperiment
             var img = new Surface(_targetImage.Width, _targetImage.Height);
             img.ApplyWavelets(_allWavelets);
             var scale = calcWaveletScale();
-            var newWavelet = ChooseRandomWavelet(img, _targetImage, scale, _allWavelets.Count > 20, scale < 50);
+            var newWavelet = ChooseRandomWavelet(img, _targetImage, scale, _allWavelets.Count > 20, scale < 50, _allWavelets.Count > 20 ? 2000 : 10000);
             _allWavelets.Add(newWavelet);
 
             if (_allWavelets.Count <= 10 || (_allWavelets.Count < 50 && _allWavelets.Count % 2 == 0) || (_allWavelets.Count < 200 && _allWavelets.Count % 5 == 0) || (_allWavelets.Count % 20 == 0))
@@ -65,7 +65,7 @@ namespace WaveletExperiment
             _allWavelets = TweakWavelets(_allWavelets.ToArray(), img, _targetImage).ToList();
         }
 
-        private Wavelet ChooseRandomWavelet(Surface initial, Surface target, double scale, bool tweakEveryGuess, bool errorGuided)
+        private Wavelet ChooseRandomWavelet(Surface initial, Surface target, double scale, bool tweakEveryGuess, bool errorGuided, int iterations)
         {
             Surface errors = null;
             if (errorGuided)
@@ -86,7 +86,7 @@ namespace WaveletExperiment
             double bestError = TotalRmsError(initial, target);
             double startingError = bestError;
             Console.Write($"ChooseRandomWavelet initial error: {bestError}, scale {scale:0.0}, {(errorGuided ? "error-guided" : "random")}...");
-            for (int iter = 0; iter < 2000; iter++)
+            for (int iter = 0; iter < iterations; iter++)
             {
                 int x, y;
                 while (true)
@@ -101,13 +101,13 @@ namespace WaveletExperiment
                 {
                     X = x * 4 + Rnd.Next(0, 4),
                     Y = y * 4 + Rnd.Next(0, 4),
-                    W = Rnd.Next((int) (4 * scale / 4), (int) (4 * scale * 4)),
-                    H = Rnd.Next((int) (4 * scale / 4), (int) (4 * scale * 4)),
+                    W = Rnd.Next((int) (4 * scale / 4), (int) (4 * scale * 2)),
+                    H = Rnd.Next((int) (4 * scale / 4), (int) (4 * scale * 2)),
                     A = Rnd.Next(0, 360),
                     Brightness = Rnd.Next(-255, 255 + 1),
                 };
                 var newError = TotalRmsError(wavelet, initial, target);
-                Console.Write($"ChRand {iter}: ");
+                Console.Write($"{iter} ");
                 if (tweakEveryGuess)
                 {
                     wavelet = TweakWavelets(new[] { wavelet }, initial, target, 10)[0];

@@ -86,15 +86,13 @@ namespace WaveletExperiment
                     noImprovementCount++;
                 }
             }
-            using (var bs = new BinaryStream(stream))
-            {
-                bs.WriteDouble(bestTweak1);
-                bs.WriteDouble(bestTweak2);
-                bs.WriteUInt32Optim((uint) tolerance);
-                for (int i = 0; i < 20; i++)
-                    bs.WriteUInt32Optim((uint) symbols.Count(s => s == i));
-                stream.Write(best);
-            }
+            var bs = new BinaryStream(stream);
+            bs.WriteDouble(bestTweak1);
+            bs.WriteDouble(bestTweak2);
+            bs.WriteUInt32Optim((uint) tolerance);
+            for (int i = 0; i < 20; i++)
+                bs.WriteUInt32Optim((uint) symbols.Count(s => s == i));
+            stream.Write(best);
         }
 
         private static byte[] encodeResiduals(double tweak1, double tweak2, int[] symbols)

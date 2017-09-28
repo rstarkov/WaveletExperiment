@@ -55,8 +55,8 @@ namespace WaveletExperiment
 
             var newError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height), _target);
             File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {AllWavelets.Count} wavelets: {newError}. Total size: {getTotalSize():#,0} bytes" });
-            File.WriteAllLines("wavelets-final.txt", AllWavelets.Select(w => "FINAL: " + w.ToString()));
-            File.AppendAllLines("wavelets-final.txt", new[] { $"RMS FINAL error at {AllWavelets.Count} wavelets: {newError}" });
+            File.WriteAllLines($"wavelets-{AllWavelets.Count:0000}.txt", AllWavelets.Select(w => "FINAL: " + w.ToString()));
+            File.AppendAllLines($"wavelets-{AllWavelets.Count:0000}.txt", new[] { $"RMS FINAL error at {AllWavelets.Count} wavelets: {newError}" });
         }
 
         private long getTotalSize()
@@ -213,7 +213,7 @@ namespace WaveletExperiment
                 _lastDumpProgressError = error;
                 var img = initial.Clone();
                 img.ApplyWavelets(wavelets);
-                img.Save($"dump-progress-{error:000000.0000}-{img.WaveletCount:000}.png");
+                img.Save($"dump-progress-{error:000000.0000}-{img.WaveletCount:0000}.png");
             }
         }
 

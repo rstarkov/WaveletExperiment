@@ -36,7 +36,7 @@ namespace WaveletExperiment
             while (true)
             {
                 var start2 = DateTime.UtcNow;
-                opt.Optimize();
+                opt.OptimizeStep();
                 Console.WriteLine($"Step time: {(DateTime.UtcNow - start2).TotalSeconds:#,0.000}s. Total time: {(DateTime.UtcNow - start1).TotalSeconds:#,0.000}s");
             }
         }

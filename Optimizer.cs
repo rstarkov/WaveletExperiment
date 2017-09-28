@@ -9,12 +9,12 @@ namespace WaveletExperiment
 {
     class Optimizer
     {
-        private Surface _targetImage;
-        public List<Wavelet> _allWavelets = new List<Wavelet>();
+        private Surface _target;
+        public List<Wavelet> AllWavelets = new List<Wavelet>();
 
         public Optimizer(Surface target)
         {
-            _targetImage = target;
+            _target = target;
         }
 
         public void LoadWavelets(string path)
@@ -24,45 +24,45 @@ namespace WaveletExperiment
 
         public void LoadWavelets(IEnumerable<Wavelet> wavelets)
         {
-            _allWavelets = wavelets.ToList();
-            _lastDumpProgressError = TotalRmsError(_allWavelets, new Surface(_targetImage.Width, _targetImage.Height), _targetImage);
+            AllWavelets = wavelets.ToList();
+            _lastDumpProgressError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height), _target);
         }
 
         private double calcWaveletScale()
         {
-            if (_allWavelets.Count <= 10)
-                return _targetImage.Width * 0.6;
-            double result = Math.Max((_allWavelets[0].W / 4.0).ClipMax(_targetImage.Width), (_allWavelets[0].H / 4.0).ClipMax(_targetImage.Height));
-            foreach (var wvl in _allWavelets.Skip(1))
-                result = 0.9 * result + 0.1 * Math.Max((wvl.W / 4.0).ClipMax(_targetImage.Width), (wvl.H / 4.0).ClipMax(_targetImage.Height));
+            if (AllWavelets.Count <= 10)
+                return _target.Width * 0.6;
+            double result = Math.Max((AllWavelets[0].W / 4.0).ClipMax(_target.Width), (AllWavelets[0].H / 4.0).ClipMax(_target.Height));
+            foreach (var wvl in AllWavelets.Skip(1))
+                result = 0.9 * result + 0.1 * Math.Max((wvl.W / 4.0).ClipMax(_target.Width), (wvl.H / 4.0).ClipMax(_target.Height));
             return result;
         }
 
-        public void Optimize()
+        public void OptimizeStep()
         {
-            var img = new Surface(_targetImage.Width, _targetImage.Height);
-            img.ApplyWavelets(_allWavelets);
+            var img = new Surface(_target.Width, _target.Height);
+            img.ApplyWavelets(AllWavelets);
             var scale = calcWaveletScale();
-            var newWavelet = ChooseRandomWavelet(img, _targetImage, scale, _allWavelets.Count > 20, scale < 50, _allWavelets.Count > 20 ? 2000 : 10000);
-            _allWavelets.Add(newWavelet);
+            var newWavelet = ChooseRandomWavelet(img, _target, scale, AllWavelets.Count > 20, scale < 50, AllWavelets.Count > 20 ? 2000 : 15000);
+            AllWavelets.Add(newWavelet);
 
-            if (_allWavelets.Count <= 10 || (_allWavelets.Count < 50 && _allWavelets.Count % 2 == 0) || (_allWavelets.Count < 200 && _allWavelets.Count % 5 == 0) || (_allWavelets.Count % 20 == 0))
+            if (AllWavelets.Count <= 10 || (AllWavelets.Count < 50 && AllWavelets.Count % 2 == 0) || (AllWavelets.Count < 200 && AllWavelets.Count % 5 == 0) || (AllWavelets.Count % 20 == 0))
             {
                 Console.WriteLine("Tweak all...");
-                img = new Surface(_targetImage.Width, _targetImage.Height);
-                _allWavelets = TweakWavelets(_allWavelets.ToArray(), img, _targetImage).ToList();
+                img = new Surface(_target.Width, _target.Height);
+                AllWavelets = TweakWavelets(AllWavelets.ToArray(), img, _target).ToList();
             }
 
-            var newError = TotalRmsError(_allWavelets, new Surface(_targetImage.Width, _targetImage.Height), _targetImage);
-            File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {_allWavelets.Count} wavelets: {newError}" });
-            File.WriteAllLines("wavelets-final.txt", _allWavelets.Select(w => "FINAL: " + w.ToString()));
-            File.AppendAllLines("wavelets-final.txt", new[] { $"RMS FINAL error at {_allWavelets.Count} wavelets: {newError}" });
+            var newError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height), _target);
+            File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {AllWavelets.Count} wavelets: {newError}" });
+            File.WriteAllLines("wavelets-final.txt", AllWavelets.Select(w => "FINAL: " + w.ToString()));
+            File.AppendAllLines("wavelets-final.txt", new[] { $"RMS FINAL error at {AllWavelets.Count} wavelets: {newError}" });
         }
 
         public void TweakAllWavelets()
         {
-            var img = new Surface(_targetImage.Width, _targetImage.Height);
-            _allWavelets = TweakWavelets(_allWavelets.ToArray(), img, _targetImage).ToList();
+            var img = new Surface(_target.Width, _target.Height);
+            AllWavelets = TweakWavelets(AllWavelets.ToArray(), img, _target).ToList();
         }
 
         private Wavelet ChooseRandomWavelet(Surface initial, Surface target, double scale, bool tweakEveryGuess, bool errorGuided, int iterations)

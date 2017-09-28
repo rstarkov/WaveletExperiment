@@ -10,29 +10,32 @@ namespace WaveletExperiment
 {
     class Codec
     {
-        public static void EncodeWavelets(string filename, IEnumerable<Wavelet> wavelets, int width, int height)
+        public static void EncodeAll(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
         {
-            using (var file = File.Open(filename, FileMode.Create, FileAccess.Write, FileShare.Read))
-            {
-                file.WriteUInt32Optim((uint) width);
-                file.WriteUInt32Optim((uint) height);
-                file.WriteUInt32Optim((uint) wavelets.Count());
-                foreach (var wvl in wavelets)
-                    file.WriteUInt32Optim((uint) wvl.X);
-                foreach (var wvl in wavelets)
-                    file.WriteUInt32Optim((uint) wvl.Y);
-                foreach (var wvl in wavelets)
-                    file.WriteUInt32Optim((uint) wvl.W);
-                foreach (var wvl in wavelets)
-                    file.WriteUInt32Optim((uint) wvl.H);
-                foreach (var wvl in wavelets)
-                    file.WriteUInt32Optim((uint) wvl.A);
-                foreach (var wvl in wavelets)
-                    file.WriteInt32Optim(wvl.Brightness);
-            }
+            stream.WriteUInt32Optim((uint) target.Width);
+            stream.WriteUInt32Optim((uint) target.Height);
+            EncodeWavelets(stream, wavelets);
+            EncodeResiduals(stream, target, wavelets, tolerance);
         }
 
-        public static void EncodeResiduals(string filename, Surface target, List<Wavelet> wavelets, int tolerance = 0)
+        public static void EncodeWavelets(Stream stream, IEnumerable<Wavelet> wavelets)
+        {
+            stream.WriteUInt32Optim((uint) wavelets.Count());
+            foreach (var wvl in wavelets)
+                stream.WriteUInt32Optim((uint) wvl.X);
+            foreach (var wvl in wavelets)
+                stream.WriteUInt32Optim((uint) wvl.Y);
+            foreach (var wvl in wavelets)
+                stream.WriteUInt32Optim((uint) wvl.W);
+            foreach (var wvl in wavelets)
+                stream.WriteUInt32Optim((uint) wvl.H);
+            foreach (var wvl in wavelets)
+                stream.WriteUInt32Optim((uint) wvl.A);
+            foreach (var wvl in wavelets)
+                stream.WriteInt32Optim(wvl.Brightness);
+        }
+
+        public static void EncodeResiduals(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
         {
             var residuals = new Surface(target.Width, target.Height);
             residuals.ApplyWavelets(wavelets);
@@ -83,15 +86,14 @@ namespace WaveletExperiment
                     noImprovementCount++;
                 }
             }
-            using (var file = File.Open(filename, FileMode.Create, FileAccess.Write, FileShare.Read))
-            using (var bs = new BinaryStream(file))
+            using (var bs = new BinaryStream(stream))
             {
                 bs.WriteDouble(bestTweak1);
                 bs.WriteDouble(bestTweak2);
                 bs.WriteUInt32Optim((uint) tolerance);
                 for (int i = 0; i < 20; i++)
                     bs.WriteUInt32Optim((uint) symbols.Count(s => s == i));
-                file.Write(best);
+                stream.Write(best);
             }
         }
 

@@ -54,9 +54,16 @@ namespace WaveletExperiment
             }
 
             var newError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height), _target);
-            File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {AllWavelets.Count} wavelets: {newError}" });
+            File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {AllWavelets.Count} wavelets: {newError}. Total size: {getTotalSize():#,0} bytes" });
             File.WriteAllLines("wavelets-final.txt", AllWavelets.Select(w => "FINAL: " + w.ToString()));
             File.AppendAllLines("wavelets-final.txt", new[] { $"RMS FINAL error at {AllWavelets.Count} wavelets: {newError}" });
+        }
+
+        private long getTotalSize()
+        {
+            var ms = new MemoryStream();
+            Codec.EncodeAll(ms, _target, AllWavelets);
+            return ms.Length;
         }
 
         public void TweakAllWavelets()

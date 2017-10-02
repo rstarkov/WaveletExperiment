@@ -6,14 +6,14 @@ namespace WaveletExperiment
 {
     class Wavelet
     {
-        public int Brightness;
-        public int X, Y, W, H, A;
+        public int Brightness, TroughBrightness;
+        public int X, Y, W, H, A, P, F;
         public int MinX, MinY, MaxX, MaxY;
 
         private bool _precalculated = false;
         private double mXX, mXY, mYX, mYY, mXO, mYO;
 
-        public override string ToString() { return $"X={X}; Y={Y}; W={W}; H={H}; A={A}; B={Brightness}"; }
+        public override string ToString() { return $"X={X}; Y={Y}; W={W}; H={H}; A={A}; B={Brightness}; P={P}; F={F}; TroughBrightness={TroughBrightness}"; }
 
         public Wavelet()
         {
@@ -28,6 +28,9 @@ namespace WaveletExperiment
             H = parts[3];
             A = parts[4];
             Brightness = parts[5];
+            P = parts[6];
+            F = parts[7];
+            TroughBrightness = parts[8];
         }
 
         public void Invalidate()
@@ -66,13 +69,17 @@ namespace WaveletExperiment
 
             if (lengthSquared > 1)
                 return 0;
-            return Brightness * Math.Exp(-lengthSquared * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
+            var gaussian = Math.Exp(-lengthSquared * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
             // 6.23... = ln 512, ie the point at which the value becomes less than 0.5 when scaled by 256, ie would round to 0
+            var wave = (Math.Cos(tx * Math.PI / 2 * (1 + F / 20.0) * (1 + F / 20.0) + P / 180.0 * Math.PI) + 1) * 0.5 * (Brightness - TroughBrightness) + TroughBrightness;
+            // A change in P of 1 should shift all peaks by a quarter pixel regardless of wavelet size or frequency
+            // A change in F of 1 should shift the second peak by a quarter pixel
+            return wave * gaussian;
         }
 
         public Wavelet Clone()
         {
-            return new Wavelet { X = X, Y = Y, W = W, H = H, A = A, Brightness = Brightness };
+            return new Wavelet { X = X, Y = Y, W = W, H = H, A = A, Brightness = Brightness, F = F, P = P, TroughBrightness = TroughBrightness };
         }
 
         public void ApplyVector(int[] vector, int offset, bool negate)
@@ -84,6 +91,9 @@ namespace WaveletExperiment
             H = (H + vector[offset + 3] * mul);
             A = (A + vector[offset + 4] * mul + 360) % 360;
             Brightness = (Brightness + vector[offset + 5] * mul).Clip(-260, 260);
+            F = (F + vector[offset + 6] * mul).ClipMin(0);
+            P = (P + vector[offset + 7] * mul + 360) % 360;
+            TroughBrightness = (TroughBrightness + vector[offset + 8] * mul).Clip(-260, 260);
             if (X < 1) X = 1;
             if (Y < 1) Y = 1;
             if (W < 1) W = 1;

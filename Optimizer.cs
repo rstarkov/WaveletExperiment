@@ -112,6 +112,9 @@ namespace WaveletExperiment
                     H = Rnd.Next((int) (4 * scale / 4), (int) (4 * scale * 2)),
                     A = Rnd.Next(0, 360),
                     Brightness = Rnd.Next(-255, 255 + 1),
+                    F = Rnd.Next(0, 20),
+                    P = Rnd.Next(0, 360),
+                    TroughBrightness = Rnd.Next(-255, 255 + 1),
                 };
                 var newError = TotalRmsError(wavelet, initial, target);
                 Console.Write($"{iter} ");
@@ -159,7 +162,7 @@ namespace WaveletExperiment
                 for (int w = 0; w < wavelets.Length; w++)
                 {
                     img.ApplyWavelets(new[] { wavelets[w] }, invert: true);
-                    int[] vector = new[] { 0, 0, 0, 0, 0, 0 };
+                    int[] vector = new[] { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
                     for (int v = 0; v < vector.Length; v++)
                     {
                         int multiplier = 1;

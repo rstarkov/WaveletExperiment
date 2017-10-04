@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using RT.Util;
 using RT.Util.ExtensionMethods;
+using RT.Util.Streams;
 
 namespace WaveletExperiment
 {
@@ -72,6 +73,27 @@ namespace WaveletExperiment
             AllWavelets = TweakWavelets(AllWavelets.ToArray(), img, _target).ToList();
         }
 
+        public void TweakAllWaveletsForResiduals(int tolerance = 0)
+        {
+            _lastDumpProgressError = 999999999;
+            var img = new Surface(_target.Width, _target.Height);
+            AllWavelets = TweakWavelets(AllWavelets.ToArray(), img, _target, 0, eval).ToList();
+
+            double eval(Wavelet wvl, Surface cur, Surface tgt)
+            {
+                if (wvl != null)
+                    cur.ApplyWavelets(new[] { wvl });
+                var ms = new MemoryStream();
+                Codec.EncodeResidualsIncremental(new DoNotCloseStream(ms), tgt, cur, tolerance);
+                var result = ms.Length;
+                dumpProgress(result, cur, new Wavelet[0], true);
+                if (wvl != null)
+                    cur.ApplyWavelets(new[] { wvl }, invert: true);
+                Console.Write($"{result:#,0}... ");
+                return result;
+            }
+        }
+
         private Wavelet ChooseRandomWavelet(Surface initial, Surface target, double scale, bool tweakEveryGuess, bool errorGuided, int iterations)
         {
             Surface errors = null;
@@ -137,15 +159,24 @@ namespace WaveletExperiment
             return best;
         }
 
-        private Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations = 0)
+        private Wavelet[] TweakWavelets(Wavelet[] wavelets, Surface initial, Surface target, int iterations = 0, Func<Wavelet, Surface, Surface, double> eval = null)
         {
+            if (eval == null)
+                eval = (Wavelet wvl, Surface cur, Surface tgt) =>
+                {
+                    if (wvl == null)
+                        return TotalRmsError(cur, tgt);
+                    else
+                        return TotalRmsError(wvl, cur, tgt);
+                };
+
             var best = wavelets.Select(w => w.Clone()).ToArray();
             wavelets = best.Select(w => w.Clone()).ToArray();
             while (true)
             {
                 var img = initial.Clone();
                 img.ApplyWavelets(wavelets);
-                var bestError = TotalRmsError(img, target);
+                var bestError = eval(null, img, target);
                 var initialError = bestError;
 
                 if (iterations > 0)
@@ -167,7 +198,7 @@ namespace WaveletExperiment
                         {
                             vector[v] = multiplier;
                             wavelets[w].ApplyVector(vector, 0, false);
-                            var newError = TotalRmsError(wavelets[w], img, target);
+                            var newError = eval(wavelets[w], img, target);
                             if (newError < bestError)
                             {
                                 bestError = newError;
@@ -198,7 +229,7 @@ namespace WaveletExperiment
                 // Re-evaluate fully because the inner loop's error evaluation is subject to floating point errors compared to the initial error
                 img = initial.Clone();
                 img.ApplyWavelets(best);
-                bestError = TotalRmsError(img, target);
+                bestError = eval(null, img, target);
                 Console.WriteLine($"Tweaked error: {bestError}");
                 if (!(bestError < initialError))
                     return best;
@@ -206,9 +237,9 @@ namespace WaveletExperiment
         }
 
         private double _lastDumpProgressError = double.NaN;
-        private void dumpProgress(double error, Surface initial, Wavelet[] wavelets)
+        private void dumpProgress(double error, Surface initial, Wavelet[] wavelets, bool anyImprovement = false)
         {
-            if (double.IsNaN(_lastDumpProgressError) || (_lastDumpProgressError / error > 1.001))
+            if (double.IsNaN(_lastDumpProgressError) || (_lastDumpProgressError / error > 1.001) || (anyImprovement && error < _lastDumpProgressError))
             {
                 _lastDumpProgressError = error;
                 var img = initial.Clone();

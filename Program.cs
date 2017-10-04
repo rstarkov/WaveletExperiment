@@ -1,25 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
+using System.Linq;
 using RT.Util;
+using RT.Util.Streams;
 using TankIconMaker;
-
-/// <summary>
-/// - sine wave modulated by the current gaussian wavelet described by three extra numbers: frequency, phase, min brightness
-/// 
-/// ENTROPY CODING:
-/// - calculate and record the true frequency of the most frequent symbols
-/// - encode wavelet parameters using an exponential distribution arithmetic coding
-/// - encode wavelet positions using Timwi's CEC idea?
-/// - encode residuals using Timwi's CEC idea for optimal encoding of zeroes
-/// - "slightly lossy" mode where residuals below a threshold are not encoded
-/// - "slightly lossy" dithering to make higher thresholds more acceptable visually?
-/// - encode residuals using scaling? 1, 2x2, 4x4 etc
-/// - in lossless mode, it's critical to obtain residuals by reading wavelets in encoded order because addition of doubles is only approximately commutative
-/// 
-/// - low-pass filter in early stages to force initial wavelets to encode low-frequency info?
-/// - high-pass filter the original image to find important pixels, encode / compress differences for those, then optimize wavelets based on compressed size
-/// - at a certain point (scale-based? improvement slows down?) switch to analysing error locations and optimizing worst errors specifically, with local RNG and possibly a different metric (edge/feature-based?)
-/// </summary>
 
 namespace WaveletExperiment
 {
@@ -38,6 +24,37 @@ namespace WaveletExperiment
                 var start2 = DateTime.UtcNow;
                 opt.OptimizeStep();
                 Console.WriteLine($"Step time: {(DateTime.UtcNow - start2).TotalSeconds:#,0.000}s. Total time: {(DateTime.UtcNow - start1).TotalSeconds:#,0.000}s");
+            }
+        }
+
+        private static void ResultsAnalysis(Surface target, string path, int from)
+        {
+            var files = new DirectoryInfo(path).GetFiles("wavelets-*.txt").OrderBy(f => f.Name);
+            var results = new List<string>();
+            foreach (var f in files)
+            {
+                var opt = new Optimizer(target);
+                opt.LoadWavelets(f.FullName);
+                if (opt.AllWavelets.Count < from)
+                    continue;
+                var ms = new MemoryStream();
+                Codec.EncodeAll(ms, target, opt.AllWavelets, 0);
+                var length0 = ms.Length;
+                ms = new MemoryStream();
+                Codec.EncodeAll(ms, target, opt.AllWavelets, 1);
+                var length1 = ms.Length;
+                ms = new MemoryStream();
+                Codec.EncodeAll(ms, target, opt.AllWavelets, 2);
+                var length2 = ms.Length;
+                ms = new MemoryStream();
+                Codec.EncodeAll(ms, target, opt.AllWavelets, 3);
+                var length3 = ms.Length;
+
+                ms = new MemoryStream();
+                Codec.EncodeWaveletsCec(new DoNotCloseStream(ms), opt.AllWavelets);
+                var lengthW = ms.Length;
+
+                File.AppendAllLines(Path.Combine(path, "wavelets-zanalysis.txt"), new[] { $"At {opt.AllWavelets.Count} wavelets, RMS error = {Optimizer.TotalRmsError(opt.AllWavelets, new Surface(target.Width, target.Height), target)}, lossless = {length0:#,0} bytes, lossy 1 = {length1:#,0} bytes, lossy 2 = {length2:#,0} bytes, lossy 3 = {length3:#,0} bytes, wavelets only = {lengthW:#,0} bytes" });
             }
         }
     }

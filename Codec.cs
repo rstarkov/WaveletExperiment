@@ -12,13 +12,17 @@ namespace WaveletExperiment
     {
         public static void EncodeAll(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
         {
-            stream.WriteUInt32Optim((uint) target.Width);
-            stream.WriteUInt32Optim((uint) target.Height);
-            EncodeWavelets(stream, wavelets);
-            EncodeResiduals(stream, target, wavelets, tolerance);
+            var s = new DoNotCloseStream(stream);
+            s.WriteUInt32Optim((uint) target.Width);
+            s.WriteUInt32Optim((uint) target.Height);
+            EncodeWaveletsCec(s, wavelets);
+            if (tolerance < 2)
+                EncodeResidualsIncremental(s, target, wavelets, tolerance);
+            else
+                EncodeResidualsCec(s, target, wavelets, tolerance);
         }
 
-        public static void EncodeWavelets(Stream stream, IEnumerable<Wavelet> wavelets)
+        public static void EncodeWaveletsTrivial(Stream stream, IEnumerable<Wavelet> wavelets)
         {
             stream.WriteUInt32Optim((uint) wavelets.Count());
             foreach (var wvl in wavelets)
@@ -35,17 +39,151 @@ namespace WaveletExperiment
                 stream.WriteInt32Optim(wvl.Brightness);
         }
 
-        public static void EncodeResiduals(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
+        public static void EncodeWaveletsSimple(Stream stream, IEnumerable<Wavelet> wavelets)
         {
-            var residuals = new Surface(target.Width, target.Height);
-            residuals.ApplyWavelets(wavelets);
-            residuals.Merge(target, (ip, op) => Math.Round(ip).Clip(0, 255) - op);
-            //residuals.Process(p => Math.Abs(p) <= 3 ? 0 : 255);
-            //residuals.Save("residuals3.png");
-            //return;
-            var symbols = residuals.Data.Select(p =>
+            stream.WriteUInt32Optim((uint) wavelets.Count());
+            var probsA = Ut.NewArray<ulong>(360, _ => 1);
+            var probsB = Ut.NewArray<ulong>(521, _ => 1); // -260...260
+            stream.WriteUInt32Optim((uint) wavelets.Max(w => w.W));
+            var probsW = Ut.NewArray<ulong>(wavelets.Max(w => w.W) + 1, _ => 1);
+            stream.WriteUInt32Optim((uint) wavelets.Max(w => w.H));
+            var probsH = Ut.NewArray<ulong>(wavelets.Max(w => w.H) + 1, _ => 1);
+
+            stream.WriteUInt32Optim((uint) wavelets.Max(w => w.X));
+            var probsX = Ut.NewArray<ulong>(wavelets.Max(w => w.X) + 1, _ => 1);
+            stream.WriteUInt32Optim((uint) wavelets.Max(w => w.Y));
+            var probsY = Ut.NewArray<ulong>(wavelets.Max(w => w.Y) + 1, _ => 1);
+
+            var arith = new ArithmeticCodingWriter(stream, probsA);
+            foreach (var wvl in wavelets)
             {
-                int symbol = (int) p; // [-255, 255]
+                arith.TweakProbabilities(probsX);
+                arith.WriteSymbol(wvl.X);
+
+                arith.TweakProbabilities(probsY);
+                arith.WriteSymbol(wvl.Y);
+
+                arith.TweakProbabilities(probsW);
+                arith.WriteSymbol(wvl.W);
+                probsW[wvl.W]++;
+
+                arith.TweakProbabilities(probsH);
+                arith.WriteSymbol(wvl.H);
+                probsH[wvl.H]++;
+
+                arith.TweakProbabilities(probsA);
+                arith.WriteSymbol(wvl.A);
+
+                arith.TweakProbabilities(probsB);
+                arith.WriteSymbol(wvl.Brightness + 260);
+                probsB[wvl.Brightness + 260]++;
+            }
+            arith.Close(false);
+        }
+
+        public static void EncodeWaveletsCec(Stream stream, IEnumerable<Wavelet> wavelets)
+        {
+            stream.WriteUInt32Optim((uint) wavelets.Count());
+            var probsA = Ut.NewArray<ulong>(360, _ => 1);
+            var probsB = Ut.NewArray<ulong>(521, _ => 1); // -260...260
+            stream.WriteUInt32Optim((uint) wavelets.Max(w => w.W));
+            var probsW = Ut.NewArray<ulong>(wavelets.Max(w => w.W) + 1, _ => 1);
+            stream.WriteUInt32Optim((uint) wavelets.Max(w => w.H));
+            var probsH = Ut.NewArray<ulong>(wavelets.Max(w => w.H) + 1, _ => 1);
+
+            int maxWaveletsPerBlock = 2;
+            stream.WriteUInt32Optim((uint) maxWaveletsPerBlock);
+            var probsBlockType = Ut.NewArray<ulong>(2 + maxWaveletsPerBlock + 1, _ => 1); // 1 symbol for subdivide, one for zero wavelets, N for n wavelets, 1 symbol for "too many wavelets" (possible if they happen to share the same exact X/Y, even if we don't expect this to happen often)
+
+            var minX = wavelets.Min(w => w.X);
+            var minY = wavelets.Min(w => w.Y);
+            var maxXY = Math.Max(wavelets.Max(w => w.X), wavelets.Max(w => w.Y));
+            stream.WriteUInt32Optim((uint) minX);
+            stream.WriteUInt32Optim((uint) minY);
+            stream.WriteUInt32Optim((uint) maxXY);
+
+            var arith = new ArithmeticCodingWriter(stream, probsA);
+
+            void outputBlockType(int type)
+            {
+                arith.TweakProbabilities(probsBlockType);
+                arith.WriteSymbol(type);
+                probsBlockType[type]++;
+            }
+
+            void encodeBlock(int bx, int by, int bw, int bh)
+            {
+                var blockWavelets = wavelets.Where(w => w.X >= bx && w.X < bx + bw && w.Y >= by && w.Y < by + bh).ToList();
+                // 0 = subdivide, 1 = zero wavelets in this block, 2 = 1 wavelet encoded, 3 = 2 wavelets encoded ... max+1 = max wavelets encoded followed by another count symbol
+
+                if (blockWavelets.Count > maxWaveletsPerBlock && bw >= 2 && bh >= 2)
+                {
+                    // Subdivide
+                    outputBlockType(0);
+                    var bw1 = bw / 2;
+                    var bw2 = bw - bw1;
+                    var bh1 = bh / 2;
+                    var bh2 = bh - bh1;
+                    encodeBlock(bx, by, bw1, bh1);
+                    encodeBlock(bx + bw1, by, bw2, bh1);
+                    encodeBlock(bx, by + bh1, bw1, bh2);
+                    encodeBlock(bx + bw1, by + bh1, bw2, bh2);
+                }
+                else
+                {
+                    // Output all wavelets
+                    var probsX = Ut.NewArray<ulong>(bw, _ => 1);
+                    var probsY = bw == bh ? probsX : Ut.NewArray<ulong>(bh, _ => 1);
+
+                    while (blockWavelets.Count > maxWaveletsPerBlock)
+                    {
+                        outputWavelets(maxWaveletsPerBlock + 2, blockWavelets.Take(maxWaveletsPerBlock));
+                        blockWavelets = blockWavelets.Skip(maxWaveletsPerBlock).ToList();
+                    }
+                    outputWavelets(blockWavelets.Count + 1, blockWavelets);
+
+                    void outputWavelets(int blockType, IEnumerable<Wavelet> wvls)
+                    {
+                        outputBlockType(blockType);
+                        foreach (var wvl in wvls)
+                        {
+                            arith.TweakProbabilities(probsX);
+                            arith.WriteSymbol(wvl.X - bx);
+
+                            arith.TweakProbabilities(probsY);
+                            arith.WriteSymbol(wvl.Y - by);
+
+                            arith.TweakProbabilities(probsW);
+                            arith.WriteSymbol(wvl.W);
+                            probsW[wvl.W]++;
+
+                            arith.TweakProbabilities(probsH);
+                            arith.WriteSymbol(wvl.H);
+                            probsH[wvl.H]++;
+
+                            arith.TweakProbabilities(probsA);
+                            arith.WriteSymbol(wvl.A);
+
+                            arith.TweakProbabilities(probsB);
+                            arith.WriteSymbol(wvl.Brightness + 260);
+                            probsB[wvl.Brightness + 260]++;
+                        }
+                    }
+                }
+            }
+
+            encodeBlock(minX, minY, maxXY - minX + 1, maxXY - minY + 1);
+
+            arith.Close(false);
+        }
+
+        public static int[] ResidualsToSymbols(Surface target, Surface image, int tolerance = 0)
+        {
+            if (target.Width != image.Width || target.Height != image.Height)
+                throw new ArgumentException();
+            return target.Data.Zip(image.Data, (pixTarget, pixActual) =>
+            {
+                int symbol = (int) (Math.Round(pixActual).Clip(0, 255) - pixTarget); // [-255, 255]
                 if (Math.Abs(symbol) <= tolerance)
                     return 0;
                 // transform so that the symbols code for 0 [0], 1 [1], -1 [2], 2 [3], -2 [4], 3 [5], -3 [6] etc in this order
@@ -54,10 +192,72 @@ namespace WaveletExperiment
                 else
                     return -symbol * 2;
             }).ToArray();
+        }
 
+        public static void EncodeResidualsIncremental(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
+        {
+            var image = new Surface(target.Width, target.Height);
+            image.ApplyWavelets(wavelets);
+            EncodeResidualsIncremental(stream, target, image, tolerance);
+        }
+
+        public static void EncodeResidualsIncremental(Stream stream, Surface target, Surface image, int tolerance = 0)
+        {
+            stream.WriteUInt32Optim((uint) tolerance);
+            var symbols = ResidualsToSymbols(target, image, tolerance);
+            encodeResidualsIncremental(stream, symbols);
+        }
+
+        private static void encodeResidualsIncremental(Stream stream, int[] symbols)
+        {
+            // symbols range from -255 to 255, shifted by 255: [0, 510]
+            var frequencies = Ut.NewArray<ulong>(511, _ => 1);
+            const int exactFreqs = 40;
+            for (int i = 0; i < exactFreqs; i++)
+            {
+                frequencies[i] = (ulong) symbols.Count(s => s == i);
+                stream.WriteUInt64Optim(frequencies[i]);
+            }
+            var arith = new ArithmeticCodingWriter(new DoNotCloseStream(stream), frequencies);
+            foreach (var symbol in symbols)
+            {
+                arith.WriteSymbol(symbol);
+                if (symbol >= exactFreqs)
+                    frequencies[symbol]++;
+                arith.TweakProbabilities(frequencies);
+            }
+            arith.Close(false);
+        }
+
+        private static void writeUintsArith(Stream stream, IEnumerable<uint> values)
+        {
+            uint max = values.Max();
+            stream.WriteUInt32Optim(max);
+            var probs = Ut.NewArray<ulong>((int) max + 1, _ => 1);
+            var arith = new ArithmeticCodingWriter(new DoNotCloseStream(stream), probs);
+            foreach (var val in values)
+                arith.WriteSymbol(checked((int) val));
+        }
+
+        public static void EncodeResidualsExponential(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
+        {
+            var image = new Surface(target.Width, target.Height);
+            image.ApplyWavelets(wavelets);
+            EncodeResidualsExponential(stream, target, image, tolerance);
+        }
+
+        public static void EncodeResidualsExponential(Stream stream, Surface target, Surface image, int tolerance = 0)
+        {
+            stream.WriteUInt32Optim((uint) tolerance);
+            var symbols = ResidualsToSymbols(target, image, tolerance);
+            encodeResidualsExponential(stream, symbols);
+        }
+
+        private static void encodeResidualsExponential(Stream stream, int[] symbols)
+        {
             var tweak1 = 5.0;
             var tweak2 = 10.0;
-            byte[] best = encodeResiduals(tweak1, tweak2, symbols);
+            byte[] best = encodeResidualsExponentialInner(tweak1, tweak2, symbols);
             var bestTweak1 = tweak1;
             var bestTweak2 = tweak2;
             var dir1 = 0.1;
@@ -67,7 +267,7 @@ namespace WaveletExperiment
             {
                 tweak1 += dir1;
                 tweak2 += dir2;
-                var bytes = encodeResiduals(tweak1, tweak2, symbols);
+                var bytes = encodeResidualsExponentialInner(tweak1, tweak2, symbols);
                 if (best == null || bytes.Length < best.Length)
                 {
                     best = bytes;
@@ -89,13 +289,12 @@ namespace WaveletExperiment
             var bs = new BinaryStream(stream);
             bs.WriteDouble(bestTweak1);
             bs.WriteDouble(bestTweak2);
-            bs.WriteUInt32Optim((uint) tolerance);
             for (int i = 0; i < 20; i++)
                 bs.WriteUInt32Optim((uint) symbols.Count(s => s == i));
             stream.Write(best);
         }
 
-        private static byte[] encodeResiduals(double tweak1, double tweak2, int[] symbols)
+        private static byte[] encodeResidualsExponentialInner(double tweak1, double tweak2, int[] symbols)
         {
             // symbols range from -255 to 255, shifted by 255: [0, 510]
             var frequencies = Enumerable.Range(0, 511).Select(x => (ulong) (100000 * Math.Exp(-tweak1 * (x / 511.0 * tweak2)))).Select(x => x < 1 ? 1 : x).ToArray();
@@ -112,25 +311,16 @@ namespace WaveletExperiment
             }
         }
 
-        public static void EncodeResidualsCec(string filename, Surface target, List<Wavelet> wavelets, int tolerance = 0)
+        public static void EncodeResidualsCec(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
         {
-            var residuals = new Surface(target.Width, target.Height);
-            residuals.ApplyWavelets(wavelets);
-            residuals.Merge(target, (ip, op) => Math.Round(ip).Clip(0, 255) - op);
-            //residuals.Process(p => Math.Abs(p) <= 3 ? 0 : 255);
-            //residuals.Save("residuals3.png");
-            //return;
-            var symbols = residuals.Data.Select(p =>
-            {
-                int symbol = (int) p; // [-255, 255]
-                if (Math.Abs(symbol) <= tolerance)
-                    return 0;
-                // transform so that the symbols code for 0 [0], 1 [1], -1 [2], 2 [3], -2 [4], 3 [5], -3 [6] etc in this order
-                if (symbol > 0)
-                    return symbol * 2 - 1;
-                else
-                    return -symbol * 2;
-            }).ToArray();
+            var image = new Surface(target.Width, target.Height);
+            image.ApplyWavelets(wavelets);
+            EncodeResidualsCec(stream, target, image, tolerance);
+        }
+
+        public static void EncodeResidualsCec(Stream stream, Surface target, Surface image, int tolerance = 0)
+        {
+            var symbols = ResidualsToSymbols(target, image, tolerance);
 
             var bestThresh1 = -1;
             var bestThresh2 = -1;
@@ -146,20 +336,16 @@ namespace WaveletExperiment
                         bestThresh2 = thresh2;
                     }
                 }
-            using (var file = File.Open(filename, FileMode.Create, FileAccess.Write, FileShare.Read))
-            using (var bs = new BinaryStream(file))
-            {
-                bs.WriteUInt32Optim((uint) tolerance);
-                bs.WriteUInt32Optim((uint) bestThresh1);
-                bs.WriteUInt32Optim((uint) bestThresh2);
-                file.Write(best);
-            }
+            stream.WriteUInt32Optim((uint) tolerance);
+            stream.WriteUInt32Optim((uint) bestThresh1);
+            stream.WriteUInt32Optim((uint) bestThresh2);
+            stream.Write(best, 0, best.Length);
         }
 
         private static byte[] encodeResidualsCecBlock(int[] symbols, int width, int height, int maxSubdivThresh, int typSubdivThresh)
         {
-            ulong[] frequenciesPixels = RT.Util.Ut.NewArray(511, _ => 1UL);
-            ulong[] frequenciesBlocks = RT.Util.Ut.NewArray(5, _ => 1UL);
+            ulong[] frequenciesPixels = Ut.NewArray(511, _ => 1UL);
+            ulong[] frequenciesBlocks = Ut.NewArray(5, _ => 1UL);
             var ms = new MemoryStream();
             var arith = new ArithmeticCodingWriter(ms, frequenciesBlocks);
 

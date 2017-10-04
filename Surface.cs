@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
 using RT.Util.ExtensionMethods;
-using TankIconMaker;
 
 namespace WaveletExperiment
 {
@@ -22,19 +21,25 @@ namespace WaveletExperiment
             Data = new double[Width * Height];
         }
 
-        public unsafe Surface(BitmapBase img)
+        public unsafe Surface(Bitmap img)
         {
             Width = img.Width;
             Height = img.Height;
             Data = new double[Width * Height];
-            using (img.UseRead())
+            img.Save("wtf.png");
+            using (var bmp = new Bitmap(Width, Height, PixelFormat.Format24bppRgb))
+            {
+                using (var g = Graphics.FromImage(bmp))
+                    g.DrawImageUnscaled(img, 0, 0);
+                var bmpData = bmp.LockBits(new Rectangle(0, 0, Width, Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
                 for (int y = 0; y < Height; y++)
                 {
-                    byte* end = img.Data + y * img.Stride + 4 * Width;
+                    byte* end = ((byte*) bmpData.Scan0) + y * bmpData.Stride + 3 * Width;
                     int x = 0;
-                    for (byte* data = img.Data + y * img.Stride; data < end; x++, data += 4)
+                    for (byte* data = ((byte*) bmpData.Scan0) + y * bmpData.Stride; data < end; x++, data += 3)
                         Data[y * Width + x] = *data;
                 }
+            }
         }
 
         public double this[int x, int y]

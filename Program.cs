@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using RT.Util;
 using RT.Util.Streams;
-using TankIconMaker;
 
 namespace WaveletExperiment
 {
@@ -13,7 +12,7 @@ namespace WaveletExperiment
     {
         static void Main(string[] args)
         {
-            var target = new Surface(Bitmap.FromFile(@"P:\WaveletExperiment\lena3.png").ToBitmapRam());
+            var target = new Surface(new Bitmap(@"P:\WaveletExperiment\lena3.png"));
             target.Save("target.png");
             Rnd.Reset(12346);
 

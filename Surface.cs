@@ -79,7 +79,7 @@ namespace WaveletExperiment
         public void CopyTo(Surface target)
         {
             if (target.Width != Width || target.Height != Height)
-                throw new ArgumentException("Target image must have the same width and height");
+                throw new ArgumentException("Target image must have the same width and height", nameof(target));
             Array.Copy(Data, target.Data, Data.Length);
         }
 

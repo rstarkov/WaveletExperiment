@@ -18,15 +18,23 @@ namespace WaveletExperiment
             _target = target;
         }
 
-        public void LoadWavelets(string path)
+        public void LoadWavelets(string path, int scaleNum = 1, int scaleDenom = 1)
         {
-            LoadWavelets(File.ReadAllLines(path).Select(l => l.Replace("FINAL: ", "").Trim()).Where(l => l.StartsWith("X=")).Select(l => new Wavelet(l)).ToList());
+            LoadWavelets(File.ReadAllLines(path).Select(l => l.Replace("FINAL: ", "").Trim()).Where(l => l.StartsWith("X=")).Select(l => new Wavelet(l)).ToList(), scaleNum, scaleDenom);
         }
 
-        public void LoadWavelets(IEnumerable<Wavelet> wavelets)
+        public void LoadWavelets(IEnumerable<Wavelet> wavelets, int scaleNum = 1, int scaleDenom = 1)
         {
-            AllWavelets = wavelets.ToList();
+            AllWavelets = wavelets.Select(w => { w.X = w.X * scaleNum / scaleDenom; w.Y = w.Y * scaleNum / scaleDenom; w.W = w.W * scaleNum / scaleDenom; w.H = w.H * scaleNum / scaleDenom; return w; }).ToList();
             _lastDumpProgressError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height), _target);
+        }
+
+        public Surface GetResiduals()
+        {
+            var img = new Surface(_target.Width, _target.Height);
+            img.ApplyWavelets(AllWavelets);
+            img.Merge(_target, (pixActual, pixTarget) => Math.Round(pixActual).Clip(0, 255) - pixTarget + 128);
+            return img;
         }
 
         private double calcWaveletScale()

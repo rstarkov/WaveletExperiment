@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -19,8 +19,19 @@ namespace WaveletExperiment
             EncodeWaveletsCec(s, wavelets);
             if (tolerance < 2)
                 EncodeResidualsIncremental(s, target, wavelets, tolerance);
-            else
+            else if (tolerance < 100)
                 EncodeResidualsCec(s, target, wavelets, tolerance);
+        }
+
+        public static Surface DecodeAll(Stream stream)
+        {
+            var s = new DoNotCloseStream(stream);
+            var width = (int) s.ReadUInt32Optim();
+            var height = (int) s.ReadUInt32Optim();
+            var surface = new Surface(width, height);
+            var wavelets = DecodeWaveletsCec(s);
+            surface.ApplyWavelets(wavelets);
+            return surface;
         }
 
         public static void EncodeWaveletsTrivial(Stream stream, IEnumerable<Wavelet> wavelets)
@@ -176,6 +187,101 @@ namespace WaveletExperiment
             encodeBlock(minX, minY, maxXY - minX + 1, maxXY - minY + 1);
 
             arith.Finalize(false);
+        }
+
+        public static IEnumerable<Wavelet> DecodeWaveletsCec(Stream stream)
+        {
+            var count = stream.ReadUInt32Optim();
+            var probsA = new ArithmeticSymbolArrayContext(Ut.NewArray<uint>(360, _ => 1));
+            var probsB = new ArithmeticSymbolArrayContext(Ut.NewArray<uint>(521, _ => 1)); // -260...260
+            var maxW = (int) stream.ReadUInt32Optim();
+            var probsW = new ArithmeticSymbolArrayContext(Ut.NewArray<uint>(maxW + 1, _ => 1));
+            var maxH = (int) stream.ReadUInt32Optim();
+            var probsH = new ArithmeticSymbolArrayContext(Ut.NewArray<uint>(maxH + 1, _ => 1));
+
+            int maxWaveletsPerBlock = (int) stream.ReadUInt32Optim();
+            var probsBlockType = new ArithmeticSymbolArrayContext(Ut.NewArray<uint>(2 + maxWaveletsPerBlock + 1, _ => 1)); // 1 symbol for subdivide, one for zero wavelets, N for n wavelets, 1 symbol for "too many wavelets" (possible if they happen to share the same exact X/Y, even if we don't expect this to happen often)
+
+            int minX = (int) stream.ReadUInt32Optim();
+            int minY = (int) stream.ReadUInt32Optim();
+            int maxXY = (int) stream.ReadUInt32Optim();
+
+            var arith = new ArithmeticCodingReader(stream, probsA);
+            var wavelets = new List<Wavelet>();
+
+            int readBlockType()
+            {
+                arith.SetContext(probsBlockType);
+                var type = arith.ReadSymbol();
+                probsBlockType.IncrementSymbolFrequency(type);
+                return type;
+            }
+
+            void decodeBlock(int bx, int by, int bw, int bh)
+            {
+                var type = readBlockType();
+
+                if (type == 0)
+                {
+                    // Subdivide
+                    var bw1 = bw / 2;
+                    var bw2 = bw - bw1;
+                    var bh1 = bh / 2;
+                    var bh2 = bh - bh1;
+                    decodeBlock(bx, by, bw1, bh1);
+                    decodeBlock(bx + bw1, by, bw2, bh1);
+                    decodeBlock(bx, by + bh1, bw1, bh2);
+                    decodeBlock(bx + bw1, by + bh1, bw2, bh2);
+                }
+                else
+                {
+                    // Read all wavelets
+                    var probsX = new ArithmeticSymbolArrayContext(Ut.NewArray<uint>(bw, _ => 1));
+                    var probsY = bw == bh ? probsX : new ArithmeticSymbolArrayContext(Ut.NewArray<uint>(bh, _ => 1));
+
+                    while (type == maxWaveletsPerBlock + 2)
+                    {
+                        readWavelets(maxWaveletsPerBlock);
+                        type = readBlockType();
+                    }
+                    readWavelets(type - 1);
+
+                    void readWavelets(int count)
+                    {
+                        for (int i = 0; i < count; i++)
+                        {
+                            var wvl = new Wavelet();
+                            wavelets.Add(wvl);
+
+                            arith.SetContext(probsX);
+                            wvl.X = arith.ReadSymbol() + bx;
+
+                            arith.SetContext(probsY);
+                            wvl.Y = arith.ReadSymbol() + by;
+
+                            arith.SetContext(probsW);
+                            wvl.W = arith.ReadSymbol();
+                            probsW.IncrementSymbolFrequency(wvl.W);
+
+                            arith.SetContext(probsH);
+                            wvl.H = arith.ReadSymbol();
+                            probsH.IncrementSymbolFrequency(wvl.H);
+
+                            arith.SetContext(probsA);
+                            wvl.A = arith.ReadSymbol();
+
+                            arith.SetContext(probsB);
+                            wvl.Brightness = arith.ReadSymbol() - 260;
+                            probsB.IncrementSymbolFrequency(wvl.Brightness + 260);
+                        }
+                    }
+                }
+            }
+
+            decodeBlock(minX, minY, maxXY - minX + 1, maxXY - minY + 1);
+            arith.Finalize();
+
+            return wavelets;
         }
 
         public static int[] ResidualsToSymbols(Surface target, Surface image, int tolerance = 0)

@@ -1,11 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using RT.CommandLine;
+using RT.PostBuild;
 using RT.Util;
-using RT.Util.CommandLine;
 using RT.Util.Streams;
 
 namespace WaveletExperiment
@@ -76,7 +77,7 @@ namespace WaveletExperiment
         static int Main(string[] args)
         {
             if (args.Length == 2 && args[0] == "--post-build-check")
-                return Ut.RunPostBuildChecks(args[1], Assembly.GetExecutingAssembly());
+                return PostBuildChecker.RunPostBuildChecks(args[1], Assembly.GetExecutingAssembly());
 
             var target = new Surface(new Bitmap(@"P:\WaveletExperiment\lena3.png"));
             target.Save("target.png");

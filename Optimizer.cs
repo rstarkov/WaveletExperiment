@@ -191,7 +191,7 @@ namespace WaveletExperiment
                     iterations--;
                 if (iterations == 1)
                 {
-                    Console.WriteLine($"Tweaked error (early exit): {bestError}");
+                    //Console.WriteLine($"Tweaked error (early exit): {bestError}");
                     return best;
                 }
 
@@ -238,7 +238,7 @@ namespace WaveletExperiment
                 img = initial.Clone();
                 img.ApplyWavelets(best);
                 bestError = eval(null, img, target);
-                Console.WriteLine($"Tweaked error: {bestError}");
+                //Console.WriteLine($"Tweaked error: {bestError}");
                 if (!(bestError < initialError))
                     return best;
             }
@@ -278,19 +278,26 @@ namespace WaveletExperiment
             return TotalRmsError(rmsTemp, target);
         }
 
-        public static double TotalRmsError(Wavelet wavelet, Surface initial, Surface target)
+        public static unsafe double TotalRmsError(Wavelet wavelet, Surface initial, Surface target)
         {
+            // not using Surface.this[int, int] reduces this from 0.800ms to 0.315ms. Using double* reduces this to 0.260ms.
             wavelet.Precalculate();
             double total = 0;
-            for (int y = 0; y < target.Height; y++)
-                for (int x = 0; x < target.Width; x++)
-                {
-                    double pixel = initial[x, y];
-                    if (x >= wavelet.MinX && x <= wavelet.MaxX && y >= wavelet.MinY && y <= wavelet.MaxY)
-                        pixel += wavelet.Calculate(x, y);
-                    pixel = pixel.Clip(-0.5, 255.5) - target[x, y];
-                    total += pixel * pixel;
-                }
+            fixed (double* initialPtrF = initial.Data, targetPtrF = target.Data)
+            {
+                double* initialPtr = initialPtrF, targetPtr = targetPtrF;
+                for (int y = 0; y < target.Height; y++)
+                    for (int x = 0; x < target.Width; x++)
+                    {
+                        double pixel = *initialPtr;
+                        if (x >= wavelet.MinX && x <= wavelet.MaxX && y >= wavelet.MinY && y <= wavelet.MaxY)
+                            pixel += wavelet.Calculate(x, y);
+                        pixel = pixel.Clip(-0.5, 255.5) - *targetPtr;
+                        total += pixel * pixel;
+                        initialPtr++;
+                        targetPtr++;
+                    }
+            }
             return Math.Sqrt(total);
         }
     }

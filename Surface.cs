@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -26,7 +26,6 @@ namespace WaveletExperiment
             Width = img.Width;
             Height = img.Height;
             Data = new double[Width * Height];
-            img.Save("wtf.png");
             using (var bmp = new Bitmap(Width, Height, PixelFormat.Format24bppRgb))
             {
                 using (var g = Graphics.FromImage(bmp))

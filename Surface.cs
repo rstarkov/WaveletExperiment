@@ -13,12 +13,15 @@ class Surface
     public int Height { get; private set; }
     public double[] Data { get; private set; }
     public int WaveletCount { get; private set; } = 0;
+    public int Average => (int) Math.Round(Data.Average()); // rounded to whole numbers as that's what we want to save into the stream, compactly, and we need easy access to this value throughout the code
 
-    public Surface(int width, int height)
+    public Surface(int width, int height, double initial)
     {
         Width = width;
         Height = height;
         Data = new double[Width * Height];
+        if (initial != 0)
+            Array.Fill(Data, initial);
     }
 
     public unsafe Surface(Bitmap img)
@@ -68,7 +71,7 @@ class Surface
 
     public Surface Clone()
     {
-        return new Surface(Width, Height) { Data = Data.ToArray(), WaveletCount = WaveletCount };
+        return new Surface(Width, Height, 0) { Data = Data.ToArray(), WaveletCount = WaveletCount };
     }
 
     public void CopyTo(Surface target)

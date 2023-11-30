@@ -11,11 +11,13 @@ namespace WaveletExperiment;
 class Optimizer
 {
     private Surface _target;
+    private int _background;
     public List<Wavelet> AllWavelets = new List<Wavelet>();
 
     public Optimizer(Surface target)
     {
         _target = target;
+        _background = target.Average;
     }
 
     public void LoadWavelets(string path, int scaleNum = 1, int scaleDenom = 1)
@@ -26,12 +28,12 @@ class Optimizer
     public void LoadWavelets(IEnumerable<Wavelet> wavelets, int scaleNum = 1, int scaleDenom = 1)
     {
         AllWavelets = wavelets.Select(w => { w.X = w.X * scaleNum / scaleDenom; w.Y = w.Y * scaleNum / scaleDenom; w.W = w.W * scaleNum / scaleDenom; w.H = w.H * scaleNum / scaleDenom; return w; }).ToList();
-        _lastDumpProgressError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height), _target);
+        _lastDumpProgressError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height, _background), _target);
     }
 
     public Surface GetResiduals()
     {
-        var img = new Surface(_target.Width, _target.Height);
+        var img = new Surface(_target.Width, _target.Height, _background);
         img.ApplyWavelets(AllWavelets);
         img.Merge(_target, (pixActual, pixTarget) => Math.Round(pixActual).Clip(0, 255) - pixTarget + 128);
         return img;
@@ -49,7 +51,7 @@ class Optimizer
 
     public void OptimizeStep()
     {
-        var img = new Surface(_target.Width, _target.Height);
+        var img = new Surface(_target.Width, _target.Height, _background);
         img.ApplyWavelets(AllWavelets);
         var scale = calcWaveletScale();
         var newWavelet = ChooseRandomWavelet(img, _target, scale, AllWavelets.Count > 20, scale < 50, AllWavelets.Count > 20 ? 2000 : 15000);
@@ -58,11 +60,11 @@ class Optimizer
         if (AllWavelets.Count <= 10 || (AllWavelets.Count < 50 && AllWavelets.Count % 2 == 0) || (AllWavelets.Count < 200 && AllWavelets.Count % 5 == 0) || (AllWavelets.Count % 20 == 0))
         {
             Console.WriteLine("Tweak all...");
-            img = new Surface(_target.Width, _target.Height);
+            img = new Surface(_target.Width, _target.Height, _background);
             AllWavelets = TweakWavelets(AllWavelets.ToArray(), img, _target).ToList();
         }
 
-        var newError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height), _target);
+        var newError = TotalRmsError(AllWavelets, new Surface(_target.Width, _target.Height, _background), _target);
         File.AppendAllLines("wavelets.txt", new[] { $"RMS error at {AllWavelets.Count} wavelets: {newError}. Total size: {getTotalSize():#,0} bytes" });
         File.WriteAllLines($"wavelets-{AllWavelets.Count:0000}.txt", AllWavelets.Select(w => "FINAL: " + w.ToString()));
         File.AppendAllLines($"wavelets-{AllWavelets.Count:0000}.txt", new[] { $"RMS FINAL error at {AllWavelets.Count} wavelets: {newError}" });
@@ -77,14 +79,14 @@ class Optimizer
 
     public void TweakAllWavelets()
     {
-        var img = new Surface(_target.Width, _target.Height);
+        var img = new Surface(_target.Width, _target.Height, _background);
         AllWavelets = TweakWavelets(AllWavelets.ToArray(), img, _target).ToList();
     }
 
     public void TweakAllWaveletsForResiduals(int tolerance = 0)
     {
         _lastDumpProgressError = 999999999;
-        var img = new Surface(_target.Width, _target.Height);
+        var img = new Surface(_target.Width, _target.Height, _background);
         AllWavelets = TweakWavelets(AllWavelets.ToArray(), img, _target, 0, eval).ToList();
 
         double eval(Wavelet wvl, Surface cur, Surface tgt)
@@ -271,8 +273,7 @@ class Optimizer
     private static Surface rmsTemp; // kinda hacky but this is a single-threaded code so it's not too bad...
     public static double TotalRmsError(IEnumerable<Wavelet> wavelets, Surface initial, Surface target)
     {
-        if (rmsTemp == null)
-            rmsTemp = new Surface(target.Width, target.Height);
+        rmsTemp ??= new Surface(target.Width, target.Height, 0);
         initial.CopyTo(rmsTemp);
         rmsTemp.ApplyWavelets(wavelets);
         return TotalRmsError(rmsTemp, target);

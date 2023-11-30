@@ -16,11 +16,20 @@ class Codec
         var s = new DoNotCloseStream(stream);
         s.WriteUInt32Optim((uint) target.Width);
         s.WriteUInt32Optim((uint) target.Height);
+        s.WriteUInt32Optim((uint) target.Average);
         EncodeWaveletsCec(s, wavelets);
         if (tolerance < 2)
+        {
+            s.WriteByte(1);
             EncodeResidualsIncremental(s, target, wavelets, tolerance);
+        }
         else if (tolerance < 100)
+        {
+            s.WriteByte(2);
             EncodeResidualsCec(s, target, wavelets, tolerance);
+        }
+        else
+            s.WriteByte(0);
     }
 
     public static Surface DecodeAll(Stream stream)
@@ -28,9 +37,13 @@ class Codec
         var s = new DoNotCloseStream(stream);
         var width = (int) s.ReadUInt32Optim();
         var height = (int) s.ReadUInt32Optim();
-        var surface = new Surface(width, height);
+        var background = (int) s.ReadUInt32Optim();
+        var surface = new Surface(width, height, background);
         var wavelets = DecodeWaveletsCec(s);
         surface.ApplyWavelets(wavelets);
+        var residualsType = s.ReadByte();
+        if (residualsType != 0)
+            throw new NotImplementedException();
         return surface;
     }
 
@@ -303,7 +316,7 @@ class Codec
 
     public static void EncodeResidualsIncremental(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
     {
-        var image = new Surface(target.Width, target.Height);
+        var image = new Surface(target.Width, target.Height, target.Average);
         image.ApplyWavelets(wavelets);
         EncodeResidualsIncremental(stream, target, image, tolerance);
     }
@@ -347,7 +360,7 @@ class Codec
 
     public static void EncodeResidualsExponential(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
     {
-        var image = new Surface(target.Width, target.Height);
+        var image = new Surface(target.Width, target.Height, target.Average);
         image.ApplyWavelets(wavelets);
         EncodeResidualsExponential(stream, target, image, tolerance);
     }
@@ -419,7 +432,7 @@ class Codec
 
     public static void EncodeResidualsCec(Stream stream, Surface target, IEnumerable<Wavelet> wavelets, int tolerance = 0)
     {
-        var image = new Surface(target.Width, target.Height);
+        var image = new Surface(target.Width, target.Height, target.Average);
         image.ApplyWavelets(wavelets);
         EncodeResidualsCec(stream, target, image, tolerance);
     }

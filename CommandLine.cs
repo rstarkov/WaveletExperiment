@@ -1,7 +1,6 @@
 using System;
 using System.Drawing;
 using System.IO;
-using System.Linq;
 using RT.CommandLine;
 
 namespace WaveletExperiment;
@@ -86,25 +85,44 @@ class CmdOptimize : CmdLine
     public string OutputPath = null;
     [Option("-r", "--resume")]
     public string WaveletsFile = null;
+    [Option("-g", "--grayscale")]
+    public bool Grayscale = false;
 
     public override int Execute()
     {
         OriginalFile = Path.GetFullPath(OriginalFile);
-        WaveletsFile = Path.GetFullPath(WaveletsFile);
+        if (WaveletsFile != null)
+            WaveletsFile = Path.GetFullPath(WaveletsFile);
         Environment.CurrentDirectory = Path.GetFullPath(OutputPath);
 
-        var target = new Surface(new Bitmap(OriginalFile));
-        target.Save("target.png");
+        var target = YCoCg.Split(new Bitmap(OriginalFile));
+        YCoCg.Combine(target.Y, target.Co, target.Cg).Save("target.png");
 
-        var opt = new Optimizer(target);
-        if (WaveletsFile != null)
-            opt.LoadWavelets(WaveletsFile);
-        var start1 = DateTime.UtcNow;
-        while (true)
+        if (Grayscale)
         {
-            var start2 = DateTime.UtcNow;
-            opt.OptimizeStep();
-            Console.WriteLine($"Step time: {(DateTime.UtcNow - start2).TotalSeconds:#,0.000} seconds. Total time: {(DateTime.UtcNow - start1).TotalHours:0.000} hours");
+            var opt = new Optimizer(target.Y, 0);
+            if (WaveletsFile != null)
+                opt.LoadWavelets(WaveletsFile);
+            var start1 = DateTime.UtcNow;
+            while (true)
+            {
+                var start2 = DateTime.UtcNow;
+                opt.OptimizeStep();
+                Console.WriteLine($"Step time: {(DateTime.UtcNow - start2).TotalSeconds:#,0.000} seconds. Total time: {(DateTime.UtcNow - start1).TotalHours:0.000} hours");
+            }
+        }
+        else
+        {
+            var opt = new ColorOptimizer(target);
+            if (WaveletsFile != null)
+                opt.LoadWavelets(WaveletsFile);
+            var start1 = DateTime.UtcNow;
+            while (true)
+            {
+                var start2 = DateTime.UtcNow;
+                opt.OptimizeStep();
+                Console.WriteLine($"Step time: {(DateTime.UtcNow - start2).TotalSeconds:#,0.000} seconds. Total time: {(DateTime.UtcNow - start1).TotalHours:0.000} hours");
+            }
         }
     }
 }

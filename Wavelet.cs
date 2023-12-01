@@ -7,13 +7,14 @@ namespace WaveletExperiment;
 class Wavelet
 {
     public int Brightness;
+    public int Co, Cg;
     public int X, Y, W, H, A;
     public int MinX, MinY, MaxX, MaxY;
 
     private bool _precalculated = false;
     private double mXX, mXY, mYX, mYY, mXO, mYO;
 
-    public override string ToString() { return $"X={X}; Y={Y}; W={W}; H={H}; A={A}; B={Brightness}"; }
+    public override string ToString() { return $"X={X}; Y={Y}; W={W}; H={H}; A={A}; Y={Brightness}; Co={Co}; Cg={Cg}"; }
 
     public Wavelet()
     {
@@ -28,6 +29,11 @@ class Wavelet
         H = parts[3];
         A = parts[4];
         Brightness = parts[5];
+        if (parts.Length > 6)
+        {
+            Co = parts[6];
+            Cg = parts[7];
+        }
     }
 
     public void Invalidate()
@@ -66,33 +72,42 @@ class Wavelet
 
         if (lengthSquared > 1)
             return 0;
-        return Brightness * Math.Exp(-lengthSquared * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
+        return Math.Exp(-lengthSquared * 6.238324625039); // square of the length of (tx, ty), conveniently cancelling out the sqrt
         // 6.23... = ln 512, ie the point at which the value becomes less than 0.5 when scaled by 256, ie would round to 0
     }
 
     public Wavelet Clone()
     {
-        return new Wavelet { X = X, Y = Y, W = W, H = H, A = A, Brightness = Brightness };
+        return new Wavelet { X = X, Y = Y, W = W, H = H, A = A, Brightness = Brightness, Co = Co, Cg = Cg };
     }
 
-    public void ApplyVector(int[] vector, int offset, bool negate)
+    public void ApplyVector(int[] vector, int offset, bool negate, int color)
     {
         int mul = negate ? -1 : 1;
-        X = (X + vector[offset + 0] * mul);
-        Y = (Y + vector[offset + 1] * mul);
-        W = (W + vector[offset + 2] * mul);
-        H = (H + vector[offset + 3] * mul);
-        A = (A + vector[offset + 4] * mul + 360) % 360;
-        Brightness = (Brightness + vector[offset + 5] * mul).Clip(-260, 260);
-        if (X < 1) X = 1;
-        if (Y < 1) Y = 1;
-        if (W < 1) W = 1;
-        if (W > 99999) W = 99999;
-        if (H < 1) H = 1;
-        if (H > 99999) H = 99999;
-        if (W < H / 4) W = H / 4;
-        if (H < W / 4) H = W / 4;
-        _precalculated = false;
+        if (color == 0)
+        {
+            X = (X + vector[offset + 0] * mul);
+            Y = (Y + vector[offset + 1] * mul);
+            W = (W + vector[offset + 2] * mul);
+            H = (H + vector[offset + 3] * mul);
+            A = (A + vector[offset + 4] * mul + 360) % 360;
+            Brightness = (Brightness + vector[offset + 5] * mul).Clip(-260, 260);
+            if (X < 1) X = 1;
+            if (Y < 1) Y = 1;
+            if (W < 1) W = 1;
+            if (W > 99999) W = 99999;
+            if (H < 1) H = 1;
+            if (H > 99999) H = 99999;
+            if (W < H / 4) W = H / 4;
+            if (H < W / 4) H = W / 4;
+            _precalculated = false;
+        }
+        else if (color == 1)
+            Co = (Co + vector[offset + 0] * mul).Clip(-260, 260);
+        else if (color == 2)
+            Cg = (Cg + vector[offset + 0] * mul).Clip(-260, 260);
+        else
+            throw new Exception();
     }
 
     public void BoundingBoxPrecise(out int minX, out int minY, out int maxX, out int maxY)

@@ -81,11 +81,12 @@ class Surface
         Array.Copy(Data, target.Data, Data.Length);
     }
 
-    public void ApplyWavelets(IEnumerable<Wavelet> wavelets, bool invert = false)
+    public void ApplyWavelets(IEnumerable<Wavelet> wavelets, int color, bool invert = false)
     {
-        double mul = invert ? -1 : 1;
+        int mul = invert ? -1 : 1;
         foreach (var wavelet in wavelets)
         {
+            var clr = color == 0 ? wavelet.Brightness : color == 1 ? wavelet.Co : color == 2 ? wavelet.Cg : throw new Exception();
             WaveletCount += invert ? -1 : 1;
             wavelet.Precalculate();
             int xStart = (wavelet.X / 4).Clip(0, Width - 1);
@@ -101,7 +102,7 @@ class Surface
             while (true)
             {
                 int x = minX;
-                val = wavelet.Calculate(x, y) * mul;
+                val = wavelet.Calculate(x, y) * mul * clr;
                 bool hadNonZero = val != 0;
                 if (hadNonZero)
                 {
@@ -112,7 +113,7 @@ class Surface
                         x--;
                         if (x < 0)
                             break;
-                        val = wavelet.Calculate(x, y) * mul;
+                        val = wavelet.Calculate(x, y) * mul * clr;
                         if (val == 0)
                             break;
                         this[x, y] += val;
@@ -128,7 +129,7 @@ class Surface
                     x++; // we've already processed the pixel at X
                     if (x >= Width)
                         break;
-                    val = wavelet.Calculate(x, y) * mul;
+                    val = wavelet.Calculate(x, y) * mul * clr;
                     if (val == 0)
                     {
                         if (!hadNonZero)

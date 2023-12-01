@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -9,6 +8,9 @@ using RT.PostBuild;
 using RT.Util;
 using RT.Util.ExtensionMethods;
 using RT.Util.Streams;
+
+// todo: encode/decode with colors
+// todo: color optimizer should reduce RMS error of color fields where the Y value is small, but the per-surface optimization structure makes this awkward
 
 namespace WaveletExperiment;
 
@@ -36,7 +38,7 @@ class Program
         var results = new List<string>();
         foreach (var f in files)
         {
-            var opt = new Optimizer(target);
+            var opt = new Optimizer(target, 0);
             opt.LoadWavelets(f.FullName);
             if (opt.AllWavelets.Count < from)
                 continue;
@@ -60,7 +62,7 @@ class Program
             var lengthW = ms.Length;
             Console.WriteLine($"Encode total: {(DateTime.UtcNow - start).TotalSeconds}");
 
-            File.AppendAllLines(Path.Combine(path, "wavelets-zanalysis.txt"), new[] { $"At {opt.AllWavelets.Count} wavelets, RMS error = {Optimizer.TotalRmsError(opt.AllWavelets, new Surface(target.Width, target.Height, target.Average), target)}, lossless = {length0:#,0} bytes, lossy 1 = {length1:#,0} bytes, lossy 2 = {length2:#,0} bytes, lossy 3 = {length3:#,0} bytes, wavelets only = {lengthW:#,0} bytes" });
+            File.AppendAllLines(Path.Combine(path, "wavelets-zanalysis.txt"), new[] { $"At {opt.AllWavelets.Count} wavelets, RMS error = {opt.TotalRmsError(opt.AllWavelets)}, lossless = {length0:#,0} bytes, lossy 1 = {length1:#,0} bytes, lossy 2 = {length2:#,0} bytes, lossy 3 = {length3:#,0} bytes, wavelets only = {lengthW:#,0} bytes" });
         }
     }
 }

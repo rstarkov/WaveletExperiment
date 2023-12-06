@@ -1,10 +1,8 @@
-﻿using System;
-using System.Linq;
-using RT.Util.ExtensionMethods;
+﻿using RT.Util.ExtensionMethods;
 
 namespace WaveletExperiment;
 
-class Wavelet
+public class Wavelet
 {
     public int Brightness;
     public int Co, Cg;
@@ -129,5 +127,15 @@ class Wavelet
     public double Area()
     {
         return W / 8.0 * H / 8.0 * Math.PI;
+    }
+
+    public static List<Wavelet> LoadFromDump(string path, int scaleNum = 1, int scaleDenom = 1)
+    {
+        return File.ReadAllLines(path)
+            .Select(l => l.Replace("FINAL: ", "").Trim())
+            .Where(l => l.StartsWith("X="))
+            .Select(l => new Wavelet(l))
+            .Select(w => { w.X = w.X * scaleNum / scaleDenom; w.Y = w.Y * scaleNum / scaleDenom; w.W = w.W * scaleNum / scaleDenom; w.H = w.H * scaleNum / scaleDenom; return w; })
+            .ToList();
     }
 }

@@ -8,7 +8,7 @@ using RT.Util.Streams;
 
 namespace WaveletExperiment;
 
-class Optimizer
+public class Optimizer
 {
     private Surface _target;
     private int _color; // 0 = Y, 1 = Co, 2 = Cg
@@ -26,12 +26,12 @@ class Optimizer
 
     public void LoadWavelets(string path, int scaleNum = 1, int scaleDenom = 1)
     {
-        LoadWavelets(File.ReadAllLines(path).Select(l => l.Replace("FINAL: ", "").Trim()).Where(l => l.StartsWith("X=")).Select(l => new Wavelet(l)).ToList(), scaleNum, scaleDenom);
+        LoadWavelets(Wavelet.LoadFromDump(path, scaleNum, scaleDenom));
     }
 
-    public void LoadWavelets(IEnumerable<Wavelet> wavelets, int scaleNum = 1, int scaleDenom = 1)
+    public void LoadWavelets(IEnumerable<Wavelet> wavelets)
     {
-        AllWavelets = wavelets.Select(w => { w.X = w.X * scaleNum / scaleDenom; w.Y = w.Y * scaleNum / scaleDenom; w.W = w.W * scaleNum / scaleDenom; w.H = w.H * scaleNum / scaleDenom; return w; }).ToList();
+        AllWavelets = wavelets.ToList();
         _lastDumpProgressError = TotalRmsError(AllWavelets);
     }
 
@@ -336,7 +336,7 @@ class Optimizer
     }
 }
 
-class ColorOptimizer
+public class ColorOptimizer
 {
     public Optimizer OptY, OptCo, OptCg;
     public double RmsY, RmsCo, RmsCg;

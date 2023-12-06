@@ -7,7 +7,7 @@ using RT.Util.ExtensionMethods;
 
 namespace WaveletExperiment;
 
-class Surface
+public class Surface
 {
     public int Width { get; private set; }
     public int Height { get; private set; }

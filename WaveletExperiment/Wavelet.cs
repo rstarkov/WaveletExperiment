@@ -20,7 +20,7 @@ public class Wavelet
 
     public Wavelet(string line)
     {
-        var parts = line.Split(';').Select(s => int.Parse(s.Trim().Substring(2))).ToArray();
+        var parts = line.Split(';').Select(s => s.Split('=')[1].ParseInt()).ToArray();
         X = parts[0];
         Y = parts[1];
         W = parts[2];

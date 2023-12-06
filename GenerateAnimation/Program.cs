@@ -15,7 +15,7 @@ internal class Program
             AnimateProgress(@"C:\temp\run1");
             EncodeFromTemp(@"C:\temp\run1.mp4");
         }
-        AnimateOrderedBwAll(@"C:\temp\run1\wavelets-2500.txt", @"C:\temp\run1\target.png", @"C:\temp\run1.mp4");
+        AnimateOrderedAll(false, @"C:\temp\run1\wavelets-2500.txt", @"C:\temp\run1\target.png", @"C:\temp\run1.mp4");
     }
 
     static void AnimateProgress(string dumpPath)
@@ -47,12 +47,12 @@ internal class Program
         }
     }
 
-    static void AnimateOrderedBwAll(string waveletsFile, string targetFile, string mp4file)
+    static void AnimateOrderedAll(bool color, string waveletsFile, string targetFile, string mp4file)
     {
         void gen(string name, Func<IEnumerable<Wavelet>, IEnumerable<Wavelet>> order)
         {
             using var _ = new TempDir();
-            AnimateOrderedBw(waveletsFile, targetFile, order);
+            AnimateOrdered(color, waveletsFile, targetFile, order);
             EncodeFromTemp(PathUtil.AppendBeforeExtension(mp4file, "." + name));
         }
         gen("progressive", ww => ww);
@@ -62,25 +62,44 @@ internal class Program
         gen("first-brightest", ww => ww.OrderByDescending(w => w.Brightness));
         gen("first-largest", ww => ww.OrderByDescending(w => w.W * w.H));
         gen("first-smallest", ww => ww.OrderBy(w => w.W * w.H));
-        gen("first-angle", ww => ww.OrderBy(w => w.A));
+        gen("first-angle1", ww => ww.OrderBy(w => w.A));
+        gen("first-angle2", ww => ww.OrderBy(w => Math.Max(w.W, w.H) / Math.Min(w.W, w.H) < 1.3 ? 1 : 0).ThenBy(w => ((w.W > w.H ? w.A : w.A + 90) + 45) % 180));
         gen("first-blobbiest", ww => ww.OrderBy(w => Math.Max(w.W, w.H) / (double) Math.Min(w.W, w.H)));
         gen("first-sharpest", ww => ww.OrderByDescending(w => Math.Max(w.W, w.H) / (double) Math.Min(w.W, w.H)));
     }
 
-    static void AnimateOrderedBw(string waveletsFile, string targetFile, Func<IEnumerable<Wavelet>, IEnumerable<Wavelet>> order)
+    static void AnimateOrdered(bool color, string waveletsFile, string targetFile, Func<IEnumerable<Wavelet>, IEnumerable<Wavelet>> order)
     {
         var target = new Surface(new Bitmap(targetFile));
-        AnimateOrderedBw(waveletsFile, target.Width, target.Height, target.Average, order);
+        if (!color)
+            AnimateOrderedBw(waveletsFile, target.Width, target.Height, target.Average, order);
+        else
+            AnimateOrderedC(waveletsFile, target.Width, target.Height, target.Average, order);
     }
 
-    static void AnimateOrderedBw(string waveletsFIle, int width, int height, double initial, Func<IEnumerable<Wavelet>, IEnumerable<Wavelet>> order)
+    static void AnimateOrderedBw(string waveletsFIle, int width, int height, double averageY, Func<IEnumerable<Wavelet>, IEnumerable<Wavelet>> order)
     {
-        var surface = new Surface(width, height, initial);
+        var surface = new Surface(width, height, averageY);
         var wavelets = Wavelet.LoadFromDump(waveletsFIle);
         foreach (var wavelet in order(wavelets))
         {
             surface.ApplyWavelets(new[] { wavelet }, 0);
             surface.Save(Path.Combine(TempPath, $"frame-{surface.WaveletCount:0000}.png"));
+        }
+    }
+
+    static void AnimateOrderedC(string waveletsFIle, int width, int height, double averageY, Func<IEnumerable<Wavelet>, IEnumerable<Wavelet>> order)
+    {
+        var y = new Surface(width, height, averageY);
+        var co = new Surface(width, height, 0);
+        var cg = new Surface(width, height, 0);
+        var wavelets = Wavelet.LoadFromDump(waveletsFIle);
+        foreach (var wavelet in order(wavelets))
+        {
+            y.ApplyWavelets(new[] { wavelet }, 0);
+            co.ApplyWavelets(new[] { wavelet }, 1);
+            cg.ApplyWavelets(new[] { wavelet }, 2);
+            YCoCg.Combine(y, co, cg).Save(Path.Combine(TempPath, $"frame-{y.WaveletCount:0000}.png"));
         }
     }
 

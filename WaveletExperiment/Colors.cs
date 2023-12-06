@@ -7,7 +7,7 @@ using RT.Util.ExtensionMethods;
 
 namespace WaveletExperiment;
 
-static class YCoCg
+public static class YCoCg
 {
     public static unsafe (Surface Y, Surface Co, Surface Cg) Split(Bitmap img)
     {
